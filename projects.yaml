@@ -1,14 +1,4 @@
 projects:
-  - id: example
-    name: Example Project
-    repo: https://github.com/owner/repo
-    description: Replace with a real project description.
-    tags:
-      - example
-      - starter
-    featured: true
-    docs:
-      - README.md
   - id: companion-thecube-core
     name: Core
     repo: https://github.com/Companion-TheCube/Core
@@ -17,3 +7,26 @@ projects:
     featured: false
     docs:
       - readme.md
+  - id: andrewmcdan-mj-image-favorites-downloader
+    name: andrewmcdan/MJ-image-favorites-downloader
+    repo: https://github.com/andrewmcdan/MJ-image-favorites-downloader
+    description: Node.js app that downloads images from Midjourney and provides a
+      slideshow server
+    tags:
+      - midjourney
+      - node-js
+      - nodejs
+    featured: false
+    docs:
+      - README.md
+  - id: andrewmcdan-multiviewer-pip-window
+    name: andrewmcdan/multiviewer-pip-window
+    repo: https://github.com/andrewmcdan/multiviewer-pip-window
+    description: A Windows utility that turns a resizable desktop window into a live
+      PiP control for the Orei UHD‑401MV HDMI multiviewer. It maps window
+      position/size to PiP coordinates and sends JSON commands over serial—no
+      video capture, zero added latency.
+    tags: []
+    featured: false
+    docs:
+      - README.md

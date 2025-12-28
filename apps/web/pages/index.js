@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
@@ -11,6 +11,11 @@ export default function Home() {
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState("");
   const [expandedProjectId, setExpandedProjectId] = useState(null);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatError, setChatError] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const abortRef = useRef(null);
 
   const loadProjects = async () => {
     setLoading(true);
@@ -65,6 +70,130 @@ export default function Home() {
     setExpandedProjectId((current) =>
       current === projectId ? null : projectId
     );
+  };
+
+  const stopStreaming = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  };
+
+  const handleChatSubmit = async (event) => {
+    event.preventDefault();
+    if (!chatInput.trim() || isStreaming) {
+      return;
+    }
+
+    const question = chatInput.trim();
+    setChatInput("");
+    setChatError("");
+
+    const userMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: question
+    };
+    const assistantId = crypto.randomUUID();
+    const assistantMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      citations: []
+    };
+
+    setChatMessages((prev) => [...prev, userMessage, assistantMessage]);
+    setIsStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const updateAssistant = (updateFn) => {
+      setChatMessages((prev) =>
+        prev.map((msg) => (msg.id === assistantId ? updateFn(msg) : msg))
+      );
+    };
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream"
+        },
+        body: JSON.stringify({ question, stream: true }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "Chat failed");
+      }
+
+      if (!response.body) {
+        throw new Error("No response body");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          const lines = part.split("\n").filter(Boolean);
+          if (lines.length === 0) {
+            continue;
+          }
+          let eventType = "message";
+          let data = "";
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              data += line.slice(5).trim();
+            }
+          }
+          if (!data) {
+            continue;
+          }
+
+          let payload;
+          try {
+            payload = JSON.parse(data);
+          } catch {
+            continue;
+          }
+
+          if (eventType === "meta") {
+            updateAssistant((msg) => ({
+              ...msg,
+              citations: payload.citations || []
+            }));
+          } else if (eventType === "delta") {
+            updateAssistant((msg) => ({
+              ...msg,
+              content: msg.content + (payload.delta || "")
+            }));
+          } else if (eventType === "error") {
+            throw new Error(payload.error || "Chat failed");
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        setChatError(err.message || "Chat failed");
+      }
+    } finally {
+      setIsStreaming(false);
+    }
   };
 
   return (
@@ -155,10 +284,76 @@ export default function Home() {
         </header>
 
         <section className="chat-window">
-          <h2>Ask about these projects</h2>
-          <div className="chat-box">
-            <p className="muted">Chat UI coming next.</p>
+          <div className="chat-header">
+            <h2>Ask about these projects</h2>
+            {isStreaming ? (
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={stopStreaming}
+              >
+                Stop
+              </button>
+            ) : null}
           </div>
+          <div className="chat-stream">
+            {chatMessages.length === 0 ? (
+              <p className="muted">
+                Ask a question about the indexed repos to get started.
+              </p>
+            ) : (
+              chatMessages.map((msg) => (
+                <div key={msg.id} className={`chat-message ${msg.role}`}>
+                  <div className="chat-bubble">{msg.content}</div>
+                  {msg.role === "assistant" &&
+                  Array.isArray(msg.citations) &&
+                  msg.citations.length > 0 ? (
+                    <div className="citation-list">
+                      {msg.citations.map((citation) => {
+                        const label = `${citation.repo || "source"}${
+                          citation.path ? `/${citation.path}` : ""
+                        }`;
+                        const href = citation.url || null;
+                        return href ? (
+                          <a
+                            className="citation-item"
+                            key={`${msg.id}-${citation.index}`}
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            [{citation.index}] {label}
+                          </a>
+                        ) : (
+                          <span
+                            className="citation-item"
+                            key={`${msg.id}-${citation.index}`}
+                          >
+                            [{citation.index}] {label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+          <form className="chat-input" onSubmit={handleChatSubmit}>
+            <textarea
+              rows={3}
+              placeholder="Ask about architecture, code, or design decisions..."
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              required
+            />
+            <div className="chat-actions">
+              {chatError ? <span className="status error">{chatError}</span> : null}
+              <button type="submit" className="primary-button" disabled={isStreaming}>
+                {isStreaming ? "Streaming..." : "Send"}
+              </button>
+            </div>
+          </form>
         </section>
       </section>
 

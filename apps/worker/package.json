@@ -5,5 +5,12 @@
   "scripts": {
     "dev": "node src/index.js",
     "start": "node src/index.js"
+  },
+  "dependencies": {
+    "bullmq": "^5.12.0",
+    "drizzle-orm": "^0.45.1",
+    "minio": "^8.0.5",
+    "openai": "^4.66.1",
+    "pg": "^8.11.5"
   }
 }

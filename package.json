@@ -11,9 +11,15 @@
     "dev:worker": "npm --workspace apps/worker run dev",
     "lint:web": "npm --workspace apps/web run lint",
     "lint:api": "npm --workspace apps/api run lint",
-    "lint:worker": "npm --workspace apps/worker run lint"
+    "lint:worker": "npm --workspace apps/worker run lint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node apps/api/src/db/migrate.js"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.8",
+    "drizzle-orm": "^0.45.1"
   }
 }

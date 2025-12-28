@@ -1,10 +1,23 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Queue } from "bullmq";
+import { desc, sql } from "drizzle-orm";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
+import OpenAI from "openai";
 import YAML from "yaml";
+import {
+  JOB_TYPES,
+  QUEUE_NAMES,
+  chunks,
+  getRedisConnectionOptions,
+  ingestJobs,
+  sources
+} from "@app/shared";
+import { db } from "./db/index.js";
 
 const app = Fastify({ logger: true });
 
@@ -27,11 +40,69 @@ const corsOrigin = process.env.CORS_ORIGIN
 
 app.register(cors, { origin: corsOrigin });
 
+const resolveCorsOrigin = (request) => {
+  const originHeader = request.headers.origin;
+  if (!originHeader) {
+    return null;
+  }
+  if (corsOrigin === true) {
+    return originHeader;
+  }
+  if (Array.isArray(corsOrigin)) {
+    return corsOrigin.includes(originHeader) ? originHeader : null;
+  }
+  if (typeof corsOrigin === "string") {
+    return corsOrigin === originHeader ? originHeader : null;
+  }
+  return null;
+};
+
+const adminApiKey = process.env.ADMIN_API_KEY;
+const ingestQueue = new Queue(QUEUE_NAMES.ingest, {
+  connection: getRedisConnectionOptions()
+});
+
+const openaiApiKey = process.env.OPENAI_API_KEY;
+const embeddingModel =
+  process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
+const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o";
+const chatTemperature = Number.parseFloat(
+  process.env.CHAT_TEMPERATURE || "0.2"
+);
+const chatMaxTokens = Number.parseInt(
+  process.env.CHAT_MAX_TOKENS || "800",
+  10
+);
+const chatTopK = Number.parseInt(process.env.CHAT_TOP_K || "8", 10);
+
+const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
+
 const githubApiBase = "https://api.github.com";
 const githubToken = process.env.GITHUB_API_TOKEN || process.env.GITHUB_TOKEN;
 const githubAppId = process.env.GITHUB_APP_ID;
-const githubAppPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY;
+const githubAppPrivateKeyPath = process.env.GITHUB_APP_PRIVATE_KEY_PATH;
+const githubAppPrivateKeyRaw = process.env.GITHUB_APP_PRIVATE_KEY;
 const githubAppInstallationId = process.env.GITHUB_APP_INSTALLATION_ID;
+
+const resolvePrivateKey = () => {
+  if (githubAppPrivateKeyRaw) {
+    return githubAppPrivateKeyRaw;
+  }
+  if (!githubAppPrivateKeyPath) {
+    return null;
+  }
+  const resolvedPath = path.isAbsolute(githubAppPrivateKeyPath)
+    ? githubAppPrivateKeyPath
+    : path.join(repoRoot, githubAppPrivateKeyPath);
+  try {
+    return fsSync.readFileSync(resolvedPath, "utf8");
+  } catch (err) {
+    console.error("Failed to read GitHub App private key:", err.message);
+    return null;
+  }
+};
+
+const githubAppPrivateKey = resolvePrivateKey();
 
 let cachedInstallationToken = null;
 let cachedInstallationExpiresAt = 0;
@@ -89,6 +160,29 @@ const parseGitHubRepo = (repoUrl) => {
   }
 
   return { owner, repo };
+};
+
+const parseRepoFilter = (value) => {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.includes("github.com")) {
+    return parseGitHubRepo(trimmed);
+  }
+
+  const normalized = trimmed.replace(/^\/+/, "").replace(/\.git$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length >= 2) {
+    return { owner: parts[0], repo: parts[1] };
+  }
+
+  return null;
 };
 
 const base64UrlEncode = (input) =>
@@ -302,6 +396,77 @@ const normalizeProjectInput = async (body) => {
   return { project };
 };
 
+const extractRows = (result) => {
+  if (Array.isArray(result)) {
+    return result;
+  }
+  if (result && Array.isArray(result.rows)) {
+    return result.rows;
+  }
+  return [];
+};
+
+const retrieveChunks = async (question, repoFilter, limit) => {
+  if (!openai) {
+    throw new Error("OPENAI_API_KEY is not set");
+  }
+
+  const embeddingResponse = await openai.embeddings.create({
+    model: embeddingModel,
+    input: question
+  });
+
+  const embedding = embeddingResponse.data?.[0]?.embedding;
+  if (!embedding) {
+    throw new Error("Failed to embed question");
+  }
+
+  const vector = `[${embedding.join(",")}]`;
+  let query = sql`
+    select
+      c.id,
+      c.content,
+      c.metadata,
+      s.path,
+      s.url,
+      s.repo_owner,
+      s.repo_name,
+      s.ref,
+      s.ref_type
+    from ${chunks} c
+    join ${sources} s on s.id = c.source_id
+  `;
+
+  if (repoFilter) {
+    query = sql`${query} where s.repo_owner = ${repoFilter.owner}
+      and s.repo_name = ${repoFilter.repo}`;
+  }
+
+  query = sql`${query}
+    order by c.embedding <=> ${vector}::vector
+    limit ${limit}
+  `;
+
+  const result = await db.execute(query);
+  return extractRows(result);
+};
+
+const requireAdmin = (request, reply) => {
+  if (!adminApiKey) {
+    reply.code(500).send({ error: "ADMIN_API_KEY is not set" });
+    return false;
+  }
+
+  const provided =
+    request.headers["x-admin-key"] || request.headers["x-api-key"];
+  if (provided !== adminApiKey) {
+    reply.code(401).send({ error: "Unauthorized" });
+    return false;
+  }
+
+  return true;
+};
+
 app.get("/healthz", async () => ({ ok: true }));
 
 app.get("/projects", async () => {
@@ -334,11 +499,278 @@ app.post("/projects", async (request, reply) => {
 });
 
 app.post("/chat", async (_request, reply) => {
-  reply.code(501).send({ error: "Not implemented" });
+  const body = _request.body || {};
+  const acceptHeader = _request.headers.accept || "";
+  const wantsStream = body.stream === true || acceptHeader.includes("text/event-stream");
+  const question =
+    typeof body.question === "string"
+      ? body.question
+      : typeof body.message === "string"
+      ? body.message
+      : typeof body.prompt === "string"
+      ? body.prompt
+      : "";
+
+  if (!question.trim()) {
+    reply.code(400).send({ error: "question is required" });
+    return;
+  }
+
+  const repoFilterInput =
+    body.repo || body.repoUrl || body.project || body.projectRepo;
+  const repoFilter = parseRepoFilter(repoFilterInput);
+  const limit = Number.isFinite(Number(body.topK))
+    ? Math.min(Math.max(Number(body.topK), 1), 20)
+    : Math.min(Math.max(chatTopK, 1), 20);
+
+  try {
+    if (wantsStream) {
+      reply.hijack();
+      const allowedOrigin = resolveCorsOrigin(_request);
+      if (allowedOrigin) {
+        reply.raw.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+        reply.raw.setHeader("Vary", "Origin");
+      }
+      reply.raw.setHeader("Content-Type", "text/event-stream");
+      reply.raw.setHeader("Cache-Control", "no-cache");
+      reply.raw.setHeader("Connection", "keep-alive");
+      reply.raw.flushHeaders?.();
+
+      const sendEvent = (type, data) => {
+        reply.raw.write(`event: ${type}\n`);
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      const abortController = new AbortController();
+      const onClose = () => abortController.abort();
+      reply.raw.on("close", onClose);
+
+      try {
+        const rows = await retrieveChunks(question, repoFilter, limit);
+        if (rows.length === 0) {
+          sendEvent("meta", { citations: [], context: { count: 0 } });
+          sendEvent("delta", {
+            delta: "I don't know based on the indexed sources."
+          });
+          sendEvent("done", {});
+          reply.raw.end();
+          return;
+        }
+
+        const citations = rows.map((row, index) => ({
+          index: index + 1,
+          repo:
+            row.repo_owner && row.repo_name
+              ? `${row.repo_owner}/${row.repo_name}`
+              : null,
+          path: row.path || null,
+          ref: row.ref || null,
+          url: row.url || null
+        }));
+
+        const contextBlocks = rows.map((row, index) => {
+          const repoLabel =
+            row.repo_owner && row.repo_name
+              ? `${row.repo_owner}/${row.repo_name}`
+              : "unknown";
+          const header = `[source:${index + 1}] repo=${repoLabel} path=${
+            row.path || "unknown"
+          } url=${row.url || "n/a"}`;
+          return `${header}\n${row.content}`;
+        });
+
+        const systemPrompt = [
+          "You answer questions about GitHub repositories using ONLY the provided context.",
+          "If the answer is not in the context, say you don't know.",
+          "Cite sources using [source:n] where n matches the context block."
+        ].join(" ");
+
+        const userPrompt = `Question: ${question}\n\nContext:\n${contextBlocks.join(
+          "\n\n"
+        )}`;
+
+        sendEvent("meta", { citations, context: { count: rows.length } });
+
+        const stream = await openai.chat.completions.create({
+          model: chatModel,
+          temperature: Number.isFinite(chatTemperature) ? chatTemperature : 0.2,
+          max_tokens: Number.isFinite(chatMaxTokens) ? chatMaxTokens : 800,
+          stream: true,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ]
+        }, {
+          signal: abortController.signal
+        });
+
+        for await (const chunk of stream) {
+          const delta = chunk.choices?.[0]?.delta?.content;
+          if (delta) {
+            sendEvent("delta", { delta });
+          }
+        }
+
+        sendEvent("done", {});
+      } catch (err) {
+        sendEvent("error", { error: err.message || "Chat failed" });
+      } finally {
+        reply.raw.end();
+        reply.raw.off("close", onClose);
+      }
+
+      return;
+    }
+
+    const rows = await retrieveChunks(question, repoFilter, limit);
+    if (rows.length === 0) {
+      reply.send({
+        answer: "I don't know based on the indexed sources.",
+        citations: [],
+        context: { count: 0 }
+      });
+      return;
+    }
+
+    const citations = rows.map((row, index) => ({
+      index: index + 1,
+      repo:
+        row.repo_owner && row.repo_name
+          ? `${row.repo_owner}/${row.repo_name}`
+          : null,
+      path: row.path || null,
+      ref: row.ref || null,
+      url: row.url || null
+    }));
+
+    const contextBlocks = rows.map((row, index) => {
+      const repoLabel =
+        row.repo_owner && row.repo_name
+          ? `${row.repo_owner}/${row.repo_name}`
+          : "unknown";
+      const header = `[source:${index + 1}] repo=${repoLabel} path=${
+        row.path || "unknown"
+      } url=${row.url || "n/a"}`;
+      return `${header}\n${row.content}`;
+    });
+
+    const systemPrompt = [
+      "You answer questions about GitHub repositories using ONLY the provided context.",
+      "If the answer is not in the context, say you don't know.",
+      "Cite sources using [source:n] where n matches the context block."
+    ].join(" ");
+
+    const userPrompt = `Question: ${question}\n\nContext:\n${contextBlocks.join(
+      "\n\n"
+    )}`;
+
+    const completion = await openai.chat.completions.create({
+      model: chatModel,
+      temperature: Number.isFinite(chatTemperature) ? chatTemperature : 0.2,
+      max_tokens: Number.isFinite(chatMaxTokens) ? chatMaxTokens : 800,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
+    });
+
+    const answer = completion.choices?.[0]?.message?.content?.trim() || "";
+
+    reply.send({
+      answer,
+      citations,
+      context: { count: rows.length }
+    });
+  } catch (err) {
+    reply.code(500).send({ error: err.message || "Chat failed" });
+  }
 });
 
-app.post("/admin/reindex", async (_request, reply) => {
-  reply.code(501).send({ error: "Not implemented" });
+app.post("/admin/reindex", async (request, reply) => {
+  if (!requireAdmin(request, reply)) {
+    return;
+  }
+
+  const projects = (await readProjects()).filter(
+    (project) => project && project.repo
+  );
+  if (projects.length === 0) {
+    reply.send({ status: "empty", count: 0 });
+    return;
+  }
+
+  const now = new Date();
+  const jobRows = projects.map((project) => ({
+    projectRepo: project.repo,
+    projectName: project.name || project.repo,
+    status: "queued",
+    createdAt: now
+  }));
+
+  let inserted;
+  try {
+    inserted = await db
+      .insert(ingestJobs)
+      .values(jobRows)
+      .returning({
+        id: ingestJobs.id,
+        projectRepo: ingestJobs.projectRepo,
+        projectName: ingestJobs.projectName
+      });
+  } catch (err) {
+    reply.code(500).send({ error: err.message || "Failed to enqueue jobs" });
+    return;
+  }
+
+  const enqueued = [];
+  for (const jobRecord of inserted) {
+    const job = await ingestQueue.add(JOB_TYPES.ingestRepoDocs, {
+      ingestJobId: jobRecord.id,
+      repo: jobRecord.projectRepo,
+      name: jobRecord.projectName
+    });
+    enqueued.push({
+      jobId: job.id,
+      ingestJobId: jobRecord.id,
+      repo: jobRecord.projectRepo
+    });
+  }
+
+  reply.send({ status: "queued", count: enqueued.length, jobs: enqueued });
+});
+
+app.get("/admin/jobs", async (request, reply) => {
+  if (!requireAdmin(request, reply)) {
+    return;
+  }
+
+  const rawLimit = Number.parseInt(request.query?.limit, 10);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), 200)
+    : 50;
+
+  const jobs = await db
+    .select({
+      id: ingestJobs.id,
+      projectRepo: ingestJobs.projectRepo,
+      projectName: ingestJobs.projectName,
+      totalFiles: ingestJobs.totalFiles,
+      totalBytes: ingestJobs.totalBytes,
+      filesProcessed: ingestJobs.filesProcessed,
+      chunksStored: ingestJobs.chunksStored,
+      status: ingestJobs.status,
+      error: ingestJobs.error,
+      lastMessage: ingestJobs.lastMessage,
+      createdAt: ingestJobs.createdAt,
+      startedAt: ingestJobs.startedAt,
+      finishedAt: ingestJobs.finishedAt,
+      updatedAt: ingestJobs.updatedAt
+    })
+    .from(ingestJobs)
+    .orderBy(desc(ingestJobs.id))
+    .limit(limit);
+
+  reply.send({ jobs });
 });
 
 const port = Number(process.env.API_PORT || process.env.PORT || 3001);

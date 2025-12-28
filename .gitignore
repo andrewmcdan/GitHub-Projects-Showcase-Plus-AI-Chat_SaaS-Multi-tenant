@@ -21,9 +21,16 @@ coverage/
 .env.*.local
 !.env.example
 
+# Secrets
+secrets/
+*.pem
+*.key
+
 # Logs
 logs/
 *.log
 
 # Misc
 *.pid
+
+secrets/

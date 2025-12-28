@@ -57,6 +57,7 @@ services:
       HOST: 0.0.0.0
       API_PORT: 3001
       POSTGRES_HOST: postgres
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -66,6 +67,7 @@ services:
       - "3001:3001"
     volumes:
       - ../../projects.yaml:/app/projects.yaml
+      - ../../secrets:/app/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,12 +85,14 @@ services:
       - ../../.env
     environment:
       POSTGRES_HOST: postgres
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       PROJECTS_FILE: /app/projects.yaml
     volumes:
       - ../../projects.yaml:/app/projects.yaml
+      - ../../secrets:/app/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
