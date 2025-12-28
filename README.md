@@ -18,6 +18,11 @@
 - DNS: Lightsail DNS.
 - Full checklist: `MVP Build Checklist.md`.
 
+## Docker Compose (local)
+1) Ensure `.env` exists.
+2) Run: `docker compose -f infra/compose/docker-compose.yml up --build`
+3) Stop: `docker compose -f infra/compose/docker-compose.yml down`
+
 ## Tech choices
 - Backend: Node + Fastify
 - Frontend: Next.js

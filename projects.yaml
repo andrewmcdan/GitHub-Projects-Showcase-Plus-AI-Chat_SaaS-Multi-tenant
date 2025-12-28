@@ -3,7 +3,17 @@ projects:
     name: Example Project
     repo: https://github.com/owner/repo
     description: Replace with a real project description.
-    tags: [example, starter]
+    tags:
+      - example
+      - starter
     featured: true
     docs:
       - README.md
+  - id: companion-thecube-core
+    name: Core
+    repo: https://github.com/Companion-TheCube/Core
+    description: TheCube CORE is the manager and arbiter of all functionality on TheCube.
+    tags: []
+    featured: false
+    docs:
+      - readme.md
