@@ -104,3 +104,11 @@ projects:
     featured: false
     docs:
       - README.md
+  - id: andrewmcdan-github-projects-homepage-ai-chat
+    name: andrewmcdan/GitHub-Projects-Homepage---AI-Chat
+    repo: https://github.com/andrewmcdan/GitHub-Projects-Homepage---AI-Chat
+    description: ""
+    tags: []
+    featured: false
+    docs:
+      - README.md

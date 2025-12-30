@@ -7,6 +7,7 @@ const API_BASE_URL =
 const CHAT_HISTORY_LIMIT = 8;
 const VISITOR_ID_KEY = "gh-projects-visitor-id";
 const ADMIN_KEY_STORAGE = "gh-projects-admin-key";
+const ABOUT_SEEN_KEY = "gh-projects-about-seen";
 
 const extractRepoFromUrl = (value) => {
   if (typeof value !== "string") {
@@ -390,10 +391,13 @@ export default function Home() {
   const [ingestLoading, setIngestLoading] = useState(false);
   const [ingestError, setIngestError] = useState("");
   const [contextMenu, setContextMenu] = useState(null);
+  const [autoScroll, setAutoScroll] = useState(true);
   const abortRef = useRef(null);
   const chatStreamRef = useRef(null);
   const latestMessageRef = useRef(null);
   const contextMenuRef = useRef(null);
+  const autoScrollRef = useRef(true);
+  const isAutoScrollingRef = useRef(false);
   const lastIndexedByRepo = useMemo(
     () => buildLastIndexedMap(ingestJobs),
     [ingestJobs]
@@ -490,6 +494,21 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const seen = window.localStorage.getItem(ABOUT_SEEN_KEY);
+    if (!seen) {
+      setIsAboutOpen(true);
+      window.localStorage.setItem(ABOUT_SEEN_KEY, "true");
+    }
+  }, []);
+
+  useEffect(() => {
+    autoScrollRef.current = autoScroll;
+  }, [autoScroll]);
+
+  useEffect(() => {
     if (!adminKey) {
       setIngestJobs([]);
       setIngestError("");
@@ -510,18 +529,49 @@ export default function Home() {
 
   useEffect(() => {
     const container = chatStreamRef.current;
+    if (!container) {
+      return;
+    }
+    const handleScroll = () => {
+      if (isAutoScrollingRef.current) {
+        return;
+      }
+      const target = latestMessageRef.current;
+      if (!target) {
+        return;
+      }
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const offset = targetRect.top - containerRect.top;
+      const nearTarget = Math.abs(offset) < 16;
+      if (autoScrollRef.current !== nearTarget) {
+        setAutoScroll(nearTarget);
+      }
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    const container = chatStreamRef.current;
     const target = latestMessageRef.current;
-    if (!container || !target) {
+    if (!container || !target || !autoScroll) {
       return;
     }
 
+    isAutoScrollingRef.current = true;
     const containerRect = container.getBoundingClientRect();
     const targetRect = target.getBoundingClientRect();
     const offset = targetRect.top - containerRect.top;
     if (Math.abs(offset) > 1) {
       container.scrollTop += offset;
     }
-  }, [chatMessages]);
+    window.requestAnimationFrame(() => {
+      isAutoScrollingRef.current = false;
+    });
+  }, [chatMessages, autoScroll]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -574,11 +624,17 @@ export default function Home() {
       if (!response.ok) {
         throw new Error(payload.error || "Failed to add project");
       }
-      setMessage(
-        payload.status === "exists"
-          ? "Project already listed."
-          : "Project added."
-      );
+      if (payload.status === "exists") {
+        setMessage("Project already listed.");
+      } else if (payload.ingestJob) {
+        setMessage("Project added. Indexing queued.");
+      } else if (payload.ingestError) {
+        setMessage(
+          `Project added, but indexing failed: ${payload.ingestError}`
+        );
+      } else {
+        setMessage("Project added.");
+      }
       setRepoUrl("");
       await loadProjects();
     } catch (err) {
@@ -916,6 +972,7 @@ export default function Home() {
     const historyPayload = shouldResetHistory ? [] : history;
     setChatInput("");
     setChatError("");
+    setAutoScroll(true);
     if (explicitRepo) {
       setActiveRepo(explicitRepo);
     } else if (!activeRepo && repoMatch?.repo) {
@@ -1343,14 +1400,20 @@ export default function Home() {
               </button>
             </div>
             <div className="ingest-list">
-              {ingestLoading ? (
-                <p className="muted">Loading jobs...</p>
-              ) : ingestError ? (
-                <p className="status error">{ingestError}</p>
-              ) : ingestJobs.length === 0 ? (
-                <p className="muted">No ingest jobs yet.</p>
-              ) : (
-                ingestJobs.map((job) => {
+              {(() => {
+                const visibleJobs = ingestJobs.filter(
+                  (job) => job && !["completed", "canceled"].includes(job.status)
+                );
+                if (ingestLoading) {
+                  return <p className="muted">Loading jobs...</p>;
+                }
+                if (ingestError) {
+                  return <p className="status error">{ingestError}</p>;
+                }
+                if (visibleJobs.length === 0) {
+                  return <p className="muted">No active ingest jobs.</p>;
+                }
+                return visibleJobs.map((job) => {
                   const statusLabel = formatJobStatus(job.status);
                   const progress = formatJobProgress(job);
                   const timestamp = formatTimestamp(
@@ -1381,8 +1444,8 @@ export default function Home() {
                       ) : null}
                     </div>
                   );
-                })
-              )}
+                });
+              })()}
             </div>
           </div>
         ) : null}

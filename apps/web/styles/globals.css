@@ -237,6 +237,7 @@ a:hover {
   max-height: none;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .chat-message {
@@ -259,6 +260,7 @@ a:hover {
   color: #362f2a;
   max-width: 100%;
   white-space: pre-wrap;
+  overflow-x: hidden;
 }
 
 .chat-bubble p {
@@ -288,6 +290,8 @@ a:hover {
   border-radius: 10px;
   background: #1f1a16;
   color: #fdfbf6;
+  max-width: 100%;
+  width: 100%;
   overflow-x: auto;
   white-space: pre;
 }

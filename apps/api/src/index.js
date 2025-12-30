@@ -4,7 +4,7 @@ import fsSync from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Queue } from "bullmq";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import OpenAI from "openai";
@@ -133,6 +133,52 @@ const chatSessionCleanupIntervalMs =
         ? chatSessionCleanupIntervalMinutes * 60 * 1000
         : 0;
 let lastChatCleanupAt = 0;
+
+const ingestReindexIntervalMinutesRaw = Number.parseInt(
+    process.env.INGEST_REINDEX_INTERVAL_MINUTES || "60",
+    10
+);
+const ingestReindexIntervalMinutes =
+    Number.isFinite(ingestReindexIntervalMinutesRaw) &&
+    ingestReindexIntervalMinutesRaw > 0
+        ? ingestReindexIntervalMinutesRaw
+        : 0;
+const ingestReindexIntervalMs =
+    ingestReindexIntervalMinutes > 0
+        ? ingestReindexIntervalMinutes * 60 * 1000
+        : 0;
+const ingestInitialCheckMinutesRaw = Number.parseInt(
+    process.env.INGEST_INITIAL_INDEX_CHECK_MINUTES || "10",
+    10
+);
+const ingestInitialCheckMinutes =
+    Number.isFinite(ingestInitialCheckMinutesRaw) &&
+    ingestInitialCheckMinutesRaw > 0
+        ? ingestInitialCheckMinutesRaw
+        : 0;
+const ingestInitialCheckMs =
+    ingestInitialCheckMinutes > 0
+        ? ingestInitialCheckMinutes * 60 * 1000
+        : 0;
+const ingestQueueStaleMinutesRaw = Number.parseInt(
+    process.env.INGEST_QUEUE_STALE_MINUTES || "10",
+    10
+);
+const ingestQueueStaleMinutes =
+    Number.isFinite(ingestQueueStaleMinutesRaw) &&
+    ingestQueueStaleMinutesRaw > 0
+        ? ingestQueueStaleMinutesRaw
+        : 0;
+const ingestQueueStaleMs =
+    ingestQueueStaleMinutes > 0
+        ? ingestQueueStaleMinutes * 60 * 1000
+        : 0;
+const activeIngestStatuses = new Set([
+    "queued",
+    "running",
+    "cancel_requested",
+]);
+let ingestScheduleInFlight = false;
 
 const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 
@@ -1071,6 +1117,234 @@ const extractRows = (result) => {
     return [];
 };
 
+const fetchLatestIngestJob = async (projectRepo) => {
+    if (!projectRepo) {
+        return null;
+    }
+    const rows = await db
+        .select({
+            status: ingestJobs.status,
+            createdAt: ingestJobs.createdAt,
+            updatedAt: ingestJobs.updatedAt,
+            finishedAt: ingestJobs.finishedAt,
+        })
+        .from(ingestJobs)
+        .where(eq(ingestJobs.projectRepo, projectRepo))
+        .orderBy(desc(ingestJobs.id))
+        .limit(1);
+    return rows[0] || null;
+};
+
+const getJobTimestamp = (job) => {
+    if (!job) {
+        return null;
+    }
+    const value = job.finishedAt || job.updatedAt || job.createdAt;
+    const timestamp = new Date(value || 0).getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const hasSourcesForRepo = async (repo) => {
+    if (!repo?.owner || !repo?.repo) {
+        return false;
+    }
+    const rows = await db
+        .select({ id: sources.id })
+        .from(sources)
+        .where(
+            and(
+                eq(sources.repoOwner, repo.owner),
+                eq(sources.repoName, repo.repo)
+            )
+        )
+        .limit(1);
+    return rows.length > 0;
+};
+
+const enqueueReindexForAllProjects = async () => {
+    const projects = (await readProjects()).filter(
+        (project) => project && project.repo
+    );
+    if (projects.length === 0) {
+        return { enqueued: 0 };
+    }
+
+    const now = Date.now();
+    const toEnqueue = [];
+    let skippedActive = 0;
+    let skippedRecent = 0;
+
+    for (const project of projects) {
+        const latestJob = await fetchLatestIngestJob(project.repo);
+        if (latestJob && activeIngestStatuses.has(latestJob.status)) {
+            skippedActive += 1;
+            continue;
+        }
+        if (ingestReindexIntervalMs && latestJob) {
+            const timestamp = getJobTimestamp(latestJob);
+            if (timestamp && now - timestamp < ingestReindexIntervalMs) {
+                skippedRecent += 1;
+                continue;
+            }
+        }
+        toEnqueue.push(project);
+    }
+
+    if (toEnqueue.length === 0) {
+        return { enqueued: 0, skippedActive, skippedRecent };
+    }
+
+    const enqueued = await enqueueIngestJobs(toEnqueue);
+    return { enqueued: enqueued.length, skippedActive, skippedRecent };
+};
+
+const enqueueInitialIndexForMissingProjects = async () => {
+    const projects = (await readProjects()).filter(
+        (project) => project && project.repo
+    );
+    if (projects.length === 0) {
+        return { enqueued: 0 };
+    }
+
+    const now = Date.now();
+    const toEnqueue = [];
+    let skippedActive = 0;
+    let skippedRecent = 0;
+    let skippedIndexed = 0;
+
+    for (const project of projects) {
+        const repo = parseRepoFromProject(project);
+        if (!repo) {
+            continue;
+        }
+        const hasSources = await hasSourcesForRepo(repo);
+        if (hasSources) {
+            skippedIndexed += 1;
+            continue;
+        }
+        const latestJob = await fetchLatestIngestJob(project.repo);
+        if (latestJob && activeIngestStatuses.has(latestJob.status)) {
+            skippedActive += 1;
+            continue;
+        }
+        if (ingestInitialCheckMs && latestJob) {
+            const timestamp = getJobTimestamp(latestJob);
+            if (timestamp && now - timestamp < ingestInitialCheckMs) {
+                skippedRecent += 1;
+                continue;
+            }
+        }
+        toEnqueue.push(project);
+    }
+
+    if (toEnqueue.length === 0) {
+        return {
+            enqueued: 0,
+            skippedActive,
+            skippedRecent,
+            skippedIndexed,
+        };
+    }
+
+    const enqueued = await enqueueIngestJobs(toEnqueue);
+    return {
+        enqueued: enqueued.length,
+        skippedActive,
+        skippedRecent,
+        skippedIndexed,
+    };
+};
+
+const requeueStaleIngestJobs = async () => {
+    if (!ingestQueueStaleMs) {
+        return { requeued: 0, checked: 0 };
+    }
+    const cutoff = new Date(Date.now() - ingestQueueStaleMs);
+    const rows = await db
+        .select({
+            id: ingestJobs.id,
+            projectRepo: ingestJobs.projectRepo,
+            projectName: ingestJobs.projectName,
+        })
+        .from(ingestJobs)
+        .where(
+            and(
+                sql`${ingestJobs.updatedAt} < ${cutoff}`,
+                sql`${ingestJobs.status} in ('queued','cancel_requested')`
+            )
+        )
+        .orderBy(desc(ingestJobs.id))
+        .limit(100);
+
+    if (rows.length === 0) {
+        return { requeued: 0, checked: 0 };
+    }
+
+    let requeued = 0;
+    let canceled = 0;
+    for (const row of rows) {
+        const queueJob = await ingestQueue.getJob(`ingest-${row.id}`);
+        if (!queueJob) {
+            if (ingestQueueStaleMs) {
+                await db
+                    .update(ingestJobs)
+                    .set({
+                        status: "canceled",
+                        finishedAt: new Date(),
+                        lastMessage: "Canceled after stale request",
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(ingestJobs.id, row.id));
+                canceled += 1;
+            }
+            continue;
+        }
+        try {
+            const statusRows = await db
+                .select({ status: ingestJobs.status })
+                .from(ingestJobs)
+                .where(eq(ingestJobs.id, row.id))
+                .limit(1);
+            const status = statusRows[0]?.status;
+            if (status === "cancel_requested") {
+                await ingestQueue.removeJobs(`ingest-${row.id}`);
+                await db
+                    .update(ingestJobs)
+                    .set({
+                        status: "canceled",
+                        finishedAt: new Date(),
+                        lastMessage: "Canceled by admin",
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(ingestJobs.id, row.id));
+                canceled += 1;
+            } else {
+                await ingestQueue.add(
+                    JOB_TYPES.ingestRepoDocs,
+                    {
+                        ingestJobId: row.id,
+                        repo: row.projectRepo,
+                        name: row.projectName || row.projectRepo,
+                    },
+                    { jobId: `ingest-${row.id}` }
+                );
+                requeued += 1;
+                await db
+                    .update(ingestJobs)
+                    .set({
+                        lastMessage: "Requeued stale job",
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(ingestJobs.id, row.id));
+            }
+        } catch (err) {
+            app.log.warn(err);
+        }
+    }
+
+    return { requeued, canceled, checked: rows.length };
+};
+
 const fetchExpiredChatSessionIds = async (cutoff) => {
     if (!cutoff) {
         return [];
@@ -1671,7 +1945,7 @@ const enqueueIngestJobs = async (projects) => {
                 repo: jobRecord.projectRepo,
                 name: jobRecord.projectName,
             },
-            { jobId: String(jobRecord.id) }
+            { jobId: `ingest-${jobRecord.id}` }
         );
         enqueued.push({
             jobId: job.id,
@@ -1744,7 +2018,15 @@ app.post("/projects", async (request, reply) => {
 
     projects.push(project);
     await writeProjects(projects);
-    reply.code(201).send({ status: "created", project });
+    let ingestJob = null;
+    let ingestError = null;
+    try {
+        const enqueued = await enqueueIngestJobs([project]);
+        ingestJob = enqueued[0] || null;
+    } catch (err) {
+        ingestError = err.message || "Failed to enqueue ingest job";
+    }
+    reply.code(201).send({ status: "created", project, ingestJob, ingestError });
 });
 
 app.delete("/projects/:id", async (request, reply) => {
@@ -2413,7 +2695,7 @@ app.post("/admin/jobs/:id/cancel", async (request, reply) => {
 
     let removed = false;
     try {
-        const queueJob = await ingestQueue.getJob(String(ingestJobId));
+        const queueJob = await ingestQueue.getJob(`ingest-${ingestJobId}`);
         if (queueJob) {
             await queueJob.remove();
             removed = true;
@@ -2489,6 +2771,60 @@ if (chatSessionTtlMs && chatSessionCleanupIntervalMs) {
             app.log.error(err);
         }
     }, chatSessionCleanupIntervalMs);
+}
+
+const runIngestSchedule = async (label, fn) => {
+    if (ingestScheduleInFlight) {
+        return;
+    }
+    ingestScheduleInFlight = true;
+    try {
+        const result = await fn();
+        if (result?.enqueued) {
+            app.log.info(
+                { label, ...result },
+                "Scheduled ingest queue updated"
+            );
+        }
+    } catch (err) {
+        app.log.error(err);
+    } finally {
+        ingestScheduleInFlight = false;
+    }
+};
+
+if (ingestReindexIntervalMs) {
+    setInterval(() => {
+        runIngestSchedule("reindex", enqueueReindexForAllProjects);
+    }, ingestReindexIntervalMs);
+    setTimeout(() => {
+        runIngestSchedule("reindex", enqueueReindexForAllProjects);
+    }, 5000);
+}
+
+if (ingestInitialCheckMs) {
+    setInterval(() => {
+        runIngestSchedule("initial-index", async () => {
+            const initial = await enqueueInitialIndexForMissingProjects();
+            const requeued = await requeueStaleIngestJobs();
+            return {
+                enqueued: (initial.enqueued || 0) + (requeued.requeued || 0),
+                initial,
+                requeued,
+            };
+        });
+    }, ingestInitialCheckMs);
+    setTimeout(() => {
+        runIngestSchedule("initial-index", async () => {
+            const initial = await enqueueInitialIndexForMissingProjects();
+            const requeued = await requeueStaleIngestJobs();
+            return {
+                enqueued: (initial.enqueued || 0) + (requeued.requeued || 0),
+                initial,
+                requeued,
+            };
+        });
+    }, 8000);
 }
 
 const port = Number(process.env.API_PORT || process.env.PORT || 3001);
