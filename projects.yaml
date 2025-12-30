@@ -30,3 +30,77 @@ projects:
     featured: false
     docs:
       - README.md
+  - id: andrewmcdan-movie-picker
+    name: andrewmcdan/Movie-Picker
+    repo: https://github.com/andrewmcdan/Movie-Picker
+    description: Interactive Plex movie picker that uses OpenAI's GPT models to
+      interview you about what you're in the mood to watch.
+    tags:
+      - ai
+      - gpt
+      - movies
+      - openai
+      - python
+    featured: false
+    docs:
+      - README.md
+  - id: andrewmcdan-chatgpt-history-viewer
+    name: andrewmcdan/ChatGPT-History-Viewer
+    repo: https://github.com/andrewmcdan/ChatGPT-History-Viewer
+    description: ""
+    tags: []
+    featured: false
+    docs:
+      - README.md
+  - id: andrewmcdan-movie-library-analyses
+    name: andrewmcdan/Movie-library-analyses
+    repo: https://github.com/andrewmcdan/Movie-library-analyses
+    description: ""
+    tags: []
+    featured: false
+    docs:
+      - README.md
+  - id: andrewmcdan-embedded-systems-cpu-scheduler-simulator
+    name: andrewmcdan/Embedded-Systems-CPU-Scheduler-Simulator
+    repo: https://github.com/andrewmcdan/Embedded-Systems-CPU-Scheduler-Simulator
+    description: Intelligent Task Scheduler Simulator for Embedded/IoT Systems
+    tags: []
+    featured: false
+    docs:
+      - README.md
+  - id: andrewmcdan-fire-sequencer
+    name: andrewmcdan/Fire-Sequencer
+    repo: https://github.com/andrewmcdan/Fire-Sequencer
+    description: ""
+    tags: []
+    featured: false
+    docs:
+      - README.md
+  - id: andrewmcdan-launchpad-grid-midi-sequencer
+    name: andrewmcdan/Launchpad-Grid-Midi-Sequencer
+    repo: https://github.com/andrewmcdan/Launchpad-Grid-Midi-Sequencer
+    description: ""
+    tags: []
+    featured: false
+    docs:
+      - README.md
+  - id: andrewmcdan-utilityserver
+    name: andrewmcdan/UtilityServer
+    repo: https://github.com/andrewmcdan/UtilityServer
+    description: ""
+    tags: []
+    featured: false
+    docs:
+      - Readme.md
+  - id: andrewmcdan-cleverdecks
+    name: andrewmcdan/CleverDecks
+    repo: https://github.com/andrewmcdan/CleverDecks
+    description: Intro to SWE Group 4 Project - CleverDecks flash cards study system
+    tags:
+      - flashcards
+      - student-project
+      - study
+      - studying
+    featured: false
+    docs:
+      - README.md

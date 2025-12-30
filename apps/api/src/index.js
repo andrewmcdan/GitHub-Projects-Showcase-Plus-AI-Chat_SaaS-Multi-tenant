@@ -111,6 +111,28 @@ const chatSnippetMaxLines = Number.parseInt(
     process.env.CHAT_SNIPPET_MAX_LINES || "160",
     10
 );
+const chatSessionTtlDays = Number.parseInt(
+    process.env.CHAT_SESSION_TTL_DAYS || "90",
+    10
+);
+const chatSessionTtlMs =
+    Number.isFinite(chatSessionTtlDays) && chatSessionTtlDays > 0
+        ? chatSessionTtlDays * 24 * 60 * 60 * 1000
+        : 0;
+const chatSessionCleanupIntervalMinutesRaw = Number.parseInt(
+    process.env.CHAT_SESSION_CLEANUP_INTERVAL_MINUTES || "60",
+    10
+);
+const chatSessionCleanupIntervalMinutes =
+    Number.isFinite(chatSessionCleanupIntervalMinutesRaw) &&
+    chatSessionCleanupIntervalMinutesRaw > 0
+        ? Math.max(chatSessionCleanupIntervalMinutesRaw, 5)
+        : 0;
+const chatSessionCleanupIntervalMs =
+    chatSessionCleanupIntervalMinutes > 0
+        ? chatSessionCleanupIntervalMinutes * 60 * 1000
+        : 0;
+let lastChatCleanupAt = 0;
 
 const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 
@@ -1049,6 +1071,72 @@ const extractRows = (result) => {
     return [];
 };
 
+const fetchExpiredChatSessionIds = async (cutoff) => {
+    if (!cutoff) {
+        return [];
+    }
+    const result = await db.execute(sql`
+        select
+            s.id as "id"
+        from ${chatSessions} s
+        left join ${chatMessages} m on m.session_id = s.id
+        group by s.id, s.created_at
+        having coalesce(max(m.created_at), s.created_at) < ${cutoff}
+        order by s.id
+    `);
+    return extractRows(result)
+        .map((row) => Number.parseInt(row.id, 10))
+        .filter((id) => Number.isFinite(id));
+};
+
+const purgeExpiredChatSessions = async () => {
+    if (!chatSessionTtlMs) {
+        return { skipped: true, expired: 0 };
+    }
+    const cutoff = new Date(Date.now() - chatSessionTtlMs);
+    const expiredIds = await fetchExpiredChatSessionIds(cutoff);
+    if (expiredIds.length === 0) {
+        return { expired: 0 };
+    }
+
+    const idSql = sql.join(
+        expiredIds.map((id) => sql`${id}`),
+        sql`, `
+    );
+    await db.execute(sql`
+        delete from ${chatMessages}
+        where session_id in (${idSql})
+    `);
+    await db.execute(sql`
+        delete from ${chatSessions}
+        where id in (${idSql})
+    `);
+
+    return { expired: expiredIds.length };
+};
+
+const maybePurgeExpiredChatSessions = async () => {
+    if (!chatSessionTtlMs || !chatSessionCleanupIntervalMs) {
+        return;
+    }
+    const now = Date.now();
+    if (now - lastChatCleanupAt < chatSessionCleanupIntervalMs) {
+        return;
+    }
+    lastChatCleanupAt = now;
+    try {
+        const result = await purgeExpiredChatSessions();
+        if (result?.expired) {
+            app.log.info(
+                { expired: result.expired },
+                "Purged expired chat sessions"
+            );
+        }
+    } catch (err) {
+        app.log.error(err);
+    }
+};
+
 const retrieveChunks = async (question, repoFilter, limit) => {
     if (!openai) {
         throw new Error("OPENAI_API_KEY is not set");
@@ -1556,6 +1644,75 @@ const requireAdmin = (request, reply) => {
     return true;
 };
 
+const enqueueIngestJobs = async (projects) => {
+    if (!Array.isArray(projects) || projects.length === 0) {
+        return [];
+    }
+    const now = new Date();
+    const jobRows = projects.map((project) => ({
+        projectRepo: project.repo,
+        projectName: project.name || project.repo,
+        status: "queued",
+        createdAt: now,
+    }));
+
+    const inserted = await db.insert(ingestJobs).values(jobRows).returning({
+        id: ingestJobs.id,
+        projectRepo: ingestJobs.projectRepo,
+        projectName: ingestJobs.projectName,
+    });
+
+    const enqueued = [];
+    for (const jobRecord of inserted) {
+        const job = await ingestQueue.add(
+            JOB_TYPES.ingestRepoDocs,
+            {
+                ingestJobId: jobRecord.id,
+                repo: jobRecord.projectRepo,
+                name: jobRecord.projectName,
+            },
+            { jobId: String(jobRecord.id) }
+        );
+        enqueued.push({
+            jobId: job.id,
+            ingestJobId: jobRecord.id,
+            repo: jobRecord.projectRepo,
+        });
+    }
+
+    return enqueued;
+};
+
+const findProjectForReindex = (projects, projectId, repoInput) => {
+    if (!Array.isArray(projects) || projects.length === 0) {
+        return null;
+    }
+    const normalizedId =
+        typeof projectId === "string" ? projectId.trim() : "";
+    const repoFilter = parseRepoFilter(repoInput);
+
+    if (normalizedId) {
+        const matchById = projects.find(
+            (project) => project && project.id === normalizedId
+        );
+        if (matchById) {
+            return matchById;
+        }
+    }
+
+    if (repoFilter) {
+        const matchByRepo = projects.find((project) => {
+            const parsed = parseRepoFromProject(project);
+            return parsed && isSameRepo(parsed, repoFilter);
+        });
+        if (matchByRepo) {
+            return matchByRepo;
+        }
+    }
+
+    return null;
+};
+
 app.get("/healthz", async () => ({ ok: true }));
 
 app.get("/projects", async () => {
@@ -1564,6 +1721,9 @@ app.get("/projects", async () => {
 });
 
 app.post("/projects", async (request, reply) => {
+    if (!requireAdmin(request, reply)) {
+        return;
+    }
     const { project, error } = await normalizeProjectInput(request.body);
     if (error) {
         reply.code(400).send({ error });
@@ -1585,6 +1745,50 @@ app.post("/projects", async (request, reply) => {
     projects.push(project);
     await writeProjects(projects);
     reply.code(201).send({ status: "created", project });
+});
+
+app.delete("/projects/:id", async (request, reply) => {
+    if (!requireAdmin(request, reply)) {
+        return;
+    }
+    const projectId =
+        typeof request.params?.id === "string"
+            ? request.params.id.trim()
+            : "";
+    const repoCandidate =
+        typeof request.query?.repo === "string"
+            ? request.query.repo
+            : typeof request.body?.repo === "string"
+            ? request.body.repo
+            : "";
+    if (!projectId && !repoCandidate) {
+        reply.code(400).send({ error: "project id or repo is required" });
+        return;
+    }
+
+    const projects = await readProjects();
+    const targetRepo = repoCandidate
+        ? parseRepoFilter(repoCandidate)
+        : null;
+    const matchIndex = projects.findIndex((project) => {
+        if (projectId && project?.id === projectId) {
+            return true;
+        }
+        if (targetRepo) {
+            const projectRepo = parseRepoFromProject(project);
+            return projectRepo && isSameRepo(projectRepo, targetRepo);
+        }
+        return false;
+    });
+
+    if (matchIndex === -1) {
+        reply.code(404).send({ error: "Project not found" });
+        return;
+    }
+
+    const [removed] = projects.splice(matchIndex, 1);
+    await writeProjects(projects);
+    reply.send({ status: "deleted", project: removed });
 });
 
 app.post("/chat/sessions", async (request, reply) => {
@@ -1614,6 +1818,7 @@ app.get("/chat/sessions", async (request, reply) => {
         reply.code(400).send({ error: "visitorId is required" });
         return;
     }
+    await maybePurgeExpiredChatSessions();
 
     const rawLimit = Number.parseInt(request.query?.limit, 10);
     const limit = Number.isFinite(rawLimit)
@@ -1644,6 +1849,7 @@ app.get("/chat/sessions/:id/messages", async (request, reply) => {
         reply.code(400).send({ error: "visitorId is required" });
         return;
     }
+    await maybePurgeExpiredChatSessions();
 
     const session = await fetchChatSession(sessionId);
     if (!session || (session.visitorId && session.visitorId !== visitorId)) {
@@ -1666,6 +1872,30 @@ app.get("/chat/sessions/:id/messages", async (request, reply) => {
     }
 });
 
+app.delete("/chat/sessions/:id", async (request, reply) => {
+    if (!requireAdmin(request, reply)) {
+        return;
+    }
+    const sessionId = normalizeSessionId(request.params?.id);
+    if (!sessionId) {
+        reply.code(400).send({ error: "sessionId is required" });
+        return;
+    }
+
+    const session = await fetchChatSession(sessionId);
+    if (!session) {
+        reply.code(404).send({ error: "Session not found" });
+        return;
+    }
+
+    await db
+        .delete(chatMessages)
+        .where(eq(chatMessages.sessionId, sessionId));
+    await db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
+
+    reply.send({ status: "deleted", sessionId });
+});
+
 app.post("/chat", async (_request, reply) => {
     const body = _request.body || {};
     const acceptHeader = _request.headers.accept || "";
@@ -1684,6 +1914,7 @@ app.post("/chat", async (_request, reply) => {
         reply.code(400).send({ error: "question is required" });
         return;
     }
+    await maybePurgeExpiredChatSessions();
 
     const statsQuestion = isStatsQuestion(question);
     const visitorId = normalizeVisitorId(
@@ -2062,22 +2293,9 @@ app.post("/admin/reindex", async (request, reply) => {
         reply.send({ status: "empty", count: 0 });
         return;
     }
-
-    const now = new Date();
-    const jobRows = projects.map((project) => ({
-        projectRepo: project.repo,
-        projectName: project.name || project.repo,
-        status: "queued",
-        createdAt: now,
-    }));
-
-    let inserted;
+    let enqueued = [];
     try {
-        inserted = await db.insert(ingestJobs).values(jobRows).returning({
-            id: ingestJobs.id,
-            projectRepo: ingestJobs.projectRepo,
-            projectName: ingestJobs.projectName,
-        });
+        enqueued = await enqueueIngestJobs(projects);
     } catch (err) {
         reply
             .code(500)
@@ -2085,21 +2303,141 @@ app.post("/admin/reindex", async (request, reply) => {
         return;
     }
 
-    const enqueued = [];
-    for (const jobRecord of inserted) {
-        const job = await ingestQueue.add(JOB_TYPES.ingestRepoDocs, {
-            ingestJobId: jobRecord.id,
-            repo: jobRecord.projectRepo,
-            name: jobRecord.projectName,
-        });
-        enqueued.push({
-            jobId: job.id,
-            ingestJobId: jobRecord.id,
-            repo: jobRecord.projectRepo,
-        });
+    reply.send({ status: "queued", count: enqueued.length, jobs: enqueued });
+});
+
+app.post("/admin/projects/:id/reindex", async (request, reply) => {
+    if (!requireAdmin(request, reply)) {
+        return;
+    }
+    const projectId =
+        typeof request.params?.id === "string"
+            ? request.params.id.trim()
+            : "";
+    const repoInput =
+        typeof request.body?.repo === "string"
+            ? request.body.repo
+            : typeof request.query?.repo === "string"
+            ? request.query.repo
+            : "";
+    const projects = (await readProjects()).filter(
+        (project) => project && project.repo
+    );
+    const project = findProjectForReindex(projects, projectId, repoInput);
+    if (!project) {
+        reply.code(404).send({ error: "Project not found" });
+        return;
     }
 
-    reply.send({ status: "queued", count: enqueued.length, jobs: enqueued });
+    try {
+        const enqueued = await enqueueIngestJobs([project]);
+        reply.send({ status: "queued", job: enqueued[0] });
+    } catch (err) {
+        reply
+            .code(500)
+            .send({ error: err.message || "Failed to enqueue job" });
+    }
+});
+
+app.post("/admin/jobs/:id/retry", async (request, reply) => {
+    if (!requireAdmin(request, reply)) {
+        return;
+    }
+    const ingestJobId = normalizeSessionId(request.params?.id);
+    if (!ingestJobId) {
+        reply.code(400).send({ error: "job id is required" });
+        return;
+    }
+
+    const rows = await db
+        .select({
+            id: ingestJobs.id,
+            projectRepo: ingestJobs.projectRepo,
+            projectName: ingestJobs.projectName,
+        })
+        .from(ingestJobs)
+        .where(eq(ingestJobs.id, ingestJobId))
+        .limit(1);
+    const jobRecord = rows[0];
+    if (!jobRecord?.projectRepo) {
+        reply.code(404).send({ error: "Job not found" });
+        return;
+    }
+
+    try {
+        const enqueued = await enqueueIngestJobs([
+            {
+                repo: jobRecord.projectRepo,
+                name: jobRecord.projectName || jobRecord.projectRepo,
+            },
+        ]);
+        reply.send({ status: "queued", job: enqueued[0] });
+    } catch (err) {
+        reply
+            .code(500)
+            .send({ error: err.message || "Failed to retry job" });
+    }
+});
+
+app.post("/admin/jobs/:id/cancel", async (request, reply) => {
+    if (!requireAdmin(request, reply)) {
+        return;
+    }
+    const ingestJobId = normalizeSessionId(request.params?.id);
+    if (!ingestJobId) {
+        reply.code(400).send({ error: "job id is required" });
+        return;
+    }
+
+    const rows = await db
+        .select({
+            id: ingestJobs.id,
+            status: ingestJobs.status,
+        })
+        .from(ingestJobs)
+        .where(eq(ingestJobs.id, ingestJobId))
+        .limit(1);
+    const jobRecord = rows[0];
+    if (!jobRecord) {
+        reply.code(404).send({ error: "Job not found" });
+        return;
+    }
+    if (
+        ["completed", "failed", "canceled"].includes(
+            String(jobRecord.status || "")
+        )
+    ) {
+        reply.code(409).send({ error: "Job already finished" });
+        return;
+    }
+
+    let removed = false;
+    try {
+        const queueJob = await ingestQueue.getJob(String(ingestJobId));
+        if (queueJob) {
+            await queueJob.remove();
+            removed = true;
+        }
+    } catch (err) {
+        app.log.warn(err);
+    }
+
+    const nextStatus = removed ? "canceled" : "cancel_requested";
+    const updateValues = {
+        status: nextStatus,
+        lastMessage: removed
+            ? "Canceled before start"
+            : "Cancel requested",
+    };
+    if (removed) {
+        updateValues.finishedAt = new Date();
+    }
+    await db
+        .update(ingestJobs)
+        .set(updateValues)
+        .where(eq(ingestJobs.id, ingestJobId));
+
+    reply.send({ status: nextStatus, jobId: ingestJobId });
 });
 
 app.get("/admin/jobs", async (request, reply) => {
@@ -2135,6 +2473,23 @@ app.get("/admin/jobs", async (request, reply) => {
 
     reply.send({ jobs });
 });
+
+if (chatSessionTtlMs && chatSessionCleanupIntervalMs) {
+    setInterval(async () => {
+        lastChatCleanupAt = Date.now();
+        try {
+            const result = await purgeExpiredChatSessions();
+            if (result?.expired) {
+                app.log.info(
+                    { expired: result.expired },
+                    "Purged expired chat sessions"
+                );
+            }
+        } catch (err) {
+            app.log.error(err);
+        }
+    }, chatSessionCleanupIntervalMs);
+}
 
 const port = Number(process.env.API_PORT || process.env.PORT || 3001);
 const host = process.env.HOST || "0.0.0.0";

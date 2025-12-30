@@ -473,6 +473,34 @@ const updateJob = async (ingestJobId, values) => {
     .where(eq(ingestJobs.id, ingestJobId));
 };
 
+const fetchJobStatus = async (ingestJobId) => {
+  if (!ingestJobId) {
+    return null;
+  }
+  const rows = await db
+    .select({ status: ingestJobs.status })
+    .from(ingestJobs)
+    .where(eq(ingestJobs.id, ingestJobId))
+    .limit(1);
+  return rows[0]?.status || null;
+};
+
+const cancelIfRequested = async (ingestJobId) => {
+  if (!ingestJobId) {
+    return false;
+  }
+  const status = await fetchJobStatus(ingestJobId);
+  if (status !== "cancel_requested" && status !== "canceled") {
+    return false;
+  }
+  await updateJob(ingestJobId, {
+    status: "canceled",
+    finishedAt: new Date(),
+    lastMessage: "Canceled by admin"
+  });
+  return true;
+};
+
 const ingestRepo = async ({ repoUrl, ingestJobId }) => {
   const parsed = parseGitHubRepo(repoUrl);
   if (!parsed) {
@@ -480,6 +508,9 @@ const ingestRepo = async ({ repoUrl, ingestJobId }) => {
   }
 
   console.log(`[worker] Starting ingest for ${parsed.owner}/${parsed.repo}`);
+  if (await cancelIfRequested(ingestJobId)) {
+    return { canceled: true };
+  }
   await ensureBucket(artifactsBucket);
 
   const repoInfo = await fetchRepoMetadata(parsed.owner, parsed.repo);
@@ -492,6 +523,9 @@ const ingestRepo = async ({ repoUrl, ingestJobId }) => {
   const selected = [];
   let totalBytes = 0;
   for (const item of treeItems) {
+    if (await cancelIfRequested(ingestJobId)) {
+      return { canceled: true };
+    }
     if (item.type !== "blob") {
       continue;
     }
@@ -529,6 +563,9 @@ const ingestRepo = async ({ repoUrl, ingestJobId }) => {
   let chunksStored = 0;
 
   for (const file of selected) {
+    if (await cancelIfRequested(ingestJobId)) {
+      return { canceled: true };
+    }
     const blob = await fetchBlob(parsed.owner, parsed.repo, file.sha);
     const buffer = Buffer.from(blob.content || "", "base64");
     if (isLikelyBinary(buffer)) {
@@ -620,6 +657,9 @@ const ingestWorker = new Worker(
 
     const { ingestJobId, repo } = job.data || {};
     if (ingestJobId) {
+      if (await cancelIfRequested(ingestJobId)) {
+        return { canceled: true };
+      }
       await updateJob(ingestJobId, {
         status: "running",
         startedAt: new Date(),
@@ -631,6 +671,14 @@ const ingestWorker = new Worker(
       const result = await ingestRepo({ repoUrl: repo, ingestJobId });
 
       if (ingestJobId) {
+        if (result?.canceled) {
+          await updateJob(ingestJobId, {
+            status: "canceled",
+            finishedAt: new Date(),
+            lastMessage: "Canceled by admin"
+          });
+          return { canceled: true };
+        }
         await updateJob(ingestJobId, {
           status: "completed",
           finishedAt: new Date(),

@@ -458,6 +458,77 @@ a:hover {
   grid-auto-rows: max-content;
 }
 
+.ingest-panel {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.ingest-list {
+  display: grid;
+  gap: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.ingest-item {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.ingest-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.ingest-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ingest-status {
+  text-transform: capitalize;
+  font-weight: 600;
+}
+
+.ingest-status.completed {
+  color: #2f5b3b;
+}
+
+.ingest-status.failed {
+  color: #a33b2f;
+}
+
+.ingest-status.running {
+  color: #1e5676;
+}
+
+.ingest-status.canceled,
+.ingest-status.cancel_requested {
+  color: #8a4f2b;
+}
+
+.ingest-detail {
+  font-size: 12px;
+  color: #433b35;
+}
+
+.ingest-time {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .chat-session {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.85);
@@ -500,6 +571,11 @@ a:hover {
 .form {
   display: grid;
   gap: 10px;
+}
+
+.project-meta {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .field {
@@ -558,6 +634,66 @@ a:hover {
 
 .muted {
   color: var(--muted);
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 4px;
+}
+
+.context-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 10px 12px;
+  border-radius: 10px;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.context-menu-item:hover {
+  background: rgba(30, 86, 118, 0.08);
+}
+
+.context-menu-item.danger {
+  color: #a33b2f;
+}
+
+.admin-key-button {
+  position: fixed;
+  bottom: 4px;
+  left: 4px;
+  z-index: 70;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 4px;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.admin-key-button:hover {
+  color: var(--accent-strong);
+  border-color: rgba(30, 86, 118, 0.4);
+}
+
+.admin-key-button.active {
+  color: var(--accent-strong);
+  border-color: var(--accent);
 }
 
 @media (max-width: 1200px) {

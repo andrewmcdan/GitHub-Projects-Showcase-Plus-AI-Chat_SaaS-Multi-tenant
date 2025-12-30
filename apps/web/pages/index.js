@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -6,6 +6,7 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 const CHAT_HISTORY_LIMIT = 8;
 const VISITOR_ID_KEY = "gh-projects-visitor-id";
+const ADMIN_KEY_STORAGE = "gh-projects-admin-key";
 
 const extractRepoFromUrl = (value) => {
   if (typeof value !== "string") {
@@ -122,6 +123,24 @@ const getProjectRepo = (project) => {
     return nameValue;
   }
 
+  return null;
+};
+
+const normalizeRepoId = (value) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const repoFromUrl = extractRepoFromUrl(trimmed);
+  if (repoFromUrl) {
+    return repoFromUrl;
+  }
+  if (trimmed.includes("/") && !trimmed.includes("http")) {
+    return trimmed;
+  }
   return null;
 };
 
@@ -282,6 +301,70 @@ const formatSessionTime = (value) => {
   });
 };
 
+const formatTimestamp = (value) => {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const formatJobStatus = (status) => {
+  if (!status) {
+    return "unknown";
+  }
+  return String(status).replace(/_/g, " ");
+};
+
+const formatJobProgress = (job) => {
+  if (!job || typeof job !== "object") {
+    return "";
+  }
+  const total = Number.isFinite(job.totalFiles) ? job.totalFiles : 0;
+  const processed = Number.isFinite(job.filesProcessed)
+    ? job.filesProcessed
+    : 0;
+  const chunks = Number.isFinite(job.chunksStored) ? job.chunksStored : 0;
+  if (total > 0) {
+    return `${processed}/${total} files · ${chunks} chunks`;
+  }
+  if (processed > 0 || chunks > 0) {
+    return `${processed} files · ${chunks} chunks`;
+  }
+  return "";
+};
+
+const buildLastIndexedMap = (jobs) => {
+  const map = new Map();
+  for (const job of jobs || []) {
+    if (!job || job.status !== "completed") {
+      continue;
+    }
+    const repoId = normalizeRepoId(job.projectRepo);
+    if (!repoId) {
+      continue;
+    }
+    const finishedAt = job.finishedAt || job.updatedAt || job.createdAt;
+    const timestamp = new Date(finishedAt || "").getTime();
+    if (!Number.isFinite(timestamp)) {
+      continue;
+    }
+    const existing = map.get(repoId);
+    if (!existing || timestamp > existing.timestamp) {
+      map.set(repoId, { timestamp, value: finishedAt });
+    }
+  }
+  return map;
+};
+
 export default function Home() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -302,9 +385,19 @@ export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [adminKey, setAdminKey] = useState("");
+  const [ingestJobs, setIngestJobs] = useState([]);
+  const [ingestLoading, setIngestLoading] = useState(false);
+  const [ingestError, setIngestError] = useState("");
+  const [contextMenu, setContextMenu] = useState(null);
   const abortRef = useRef(null);
   const chatStreamRef = useRef(null);
   const latestMessageRef = useRef(null);
+  const contextMenuRef = useRef(null);
+  const lastIndexedByRepo = useMemo(
+    () => buildLastIndexedMap(ingestJobs),
+    [ingestJobs]
+  );
 
   const loadProjects = async () => {
     setLoading(true);
@@ -347,6 +440,29 @@ export default function Home() {
     }
   };
 
+  const loadIngestJobs = async () => {
+    if (!adminKey) {
+      return;
+    }
+    setIngestLoading(true);
+    setIngestError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/jobs?limit=25`, {
+        headers: { "x-admin-key": adminKey }
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "Failed to load ingest jobs");
+      }
+      const data = await response.json();
+      setIngestJobs(Array.isArray(data.jobs) ? data.jobs : []);
+    } catch (err) {
+      setIngestError(err.message || "Failed to load ingest jobs");
+    } finally {
+      setIngestLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadProjects();
   }, []);
@@ -362,6 +478,29 @@ export default function Home() {
     }
     setVisitorId(id);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const stored = window.localStorage.getItem(ADMIN_KEY_STORAGE);
+    if (stored) {
+      setAdminKey(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!adminKey) {
+      setIngestJobs([]);
+      setIngestError("");
+      return;
+    }
+    loadIngestJobs();
+    const intervalId = window.setInterval(() => {
+      loadIngestJobs();
+    }, 20000);
+    return () => window.clearInterval(intervalId);
+  }, [adminKey]);
 
   useEffect(() => {
     if (visitorId) {
@@ -384,14 +523,51 @@ export default function Home() {
     }
   }, [chatMessages]);
 
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+    const handleDismiss = (event) => {
+      if (
+        contextMenuRef.current &&
+        contextMenuRef.current.contains(event.target)
+      ) {
+        return;
+      }
+      setContextMenu(null);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener("click", handleDismiss);
+    window.addEventListener("contextmenu", handleDismiss);
+    window.addEventListener("resize", handleDismiss);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("click", handleDismiss);
+      window.removeEventListener("contextmenu", handleDismiss);
+      window.removeEventListener("resize", handleDismiss);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (!adminKey) {
+      setMessage("Admin key required to add projects.");
+      return;
+    }
     setAdding(true);
     setMessage("");
     try {
       const response = await fetch(`${API_BASE_URL}/projects`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": adminKey
+        },
         body: JSON.stringify({ repoUrl })
       });
       const payload = await response.json().catch(() => ({}));
@@ -430,6 +606,238 @@ export default function Home() {
 
   const closeAbout = () => {
     setIsAboutOpen(false);
+  };
+
+  const promptAdminKey = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const next = window.prompt(
+      adminKey
+        ? "Update admin key (leave blank to clear)"
+        : "Enter admin key"
+    );
+    if (next === null) {
+      return;
+    }
+    const trimmed = next.trim();
+    if (!trimmed) {
+      window.localStorage.removeItem(ADMIN_KEY_STORAGE);
+      setAdminKey("");
+      return;
+    }
+    window.localStorage.setItem(ADMIN_KEY_STORAGE, trimmed);
+    setAdminKey(trimmed);
+  };
+
+  const openContextMenu = (event, menu) => {
+    if (!adminKey) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const menuWidth = 200;
+    const menuHeight =
+      menu.type === "project" || menu.type === "job" ? 120 : 72;
+    const x = Math.min(
+      event.clientX,
+      window.innerWidth - menuWidth - 12
+    );
+    const y = Math.min(
+      event.clientY,
+      window.innerHeight - menuHeight - 12
+    );
+    setContextMenu({ ...menu, x, y });
+  };
+
+  const handleDeleteProject = async (project) => {
+    if (!adminKey) {
+      setMessage("Admin key required to delete projects.");
+      return;
+    }
+    const projectId =
+      typeof project?.id === "string" ? project.id.trim() : "";
+    if (!projectId) {
+      setMessage("Project id missing.");
+      return;
+    }
+    const label = project?.name || project?.repo || projectId;
+    if (!window.confirm(`Delete project "${label}"?`)) {
+      return;
+    }
+    setMessage("");
+    setContextMenu(null);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/projects/${encodeURIComponent(projectId)}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey
+          },
+          body: project?.repo ? JSON.stringify({ repo: project.repo }) : undefined
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to delete project");
+      }
+      setMessage("Project removed.");
+      await loadProjects();
+    } catch (err) {
+      setMessage(err.message || "Failed to delete project");
+    }
+  };
+
+  const handleReindexProject = async (project) => {
+    if (!adminKey) {
+      setMessage("Admin key required to reindex projects.");
+      return;
+    }
+    const projectId =
+      typeof project?.id === "string" ? project.id.trim() : "";
+    if (!projectId) {
+      setMessage("Project id missing.");
+      return;
+    }
+    const label = project?.name || project?.repo || projectId;
+    if (!window.confirm(`Reindex project "${label}" now?`)) {
+      return;
+    }
+    setMessage("");
+    setContextMenu(null);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/admin/projects/${encodeURIComponent(
+          projectId
+        )}/reindex`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey
+          },
+          body: project?.repo ? JSON.stringify({ repo: project.repo }) : undefined
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to reindex project");
+      }
+      setMessage("Reindex queued.");
+      loadIngestJobs();
+    } catch (err) {
+      setMessage(err.message || "Failed to reindex project");
+    }
+  };
+
+  const handleDeleteSession = async (session) => {
+    if (!adminKey) {
+      setChatError("Admin key required to delete chats.");
+      return;
+    }
+    const sessionId = session?.id;
+    if (!sessionId) {
+      setChatError("Chat session id missing.");
+      return;
+    }
+    if (!window.confirm("Delete this chat session?")) {
+      return;
+    }
+    setChatError("");
+    setContextMenu(null);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/chat/sessions/${sessionId}`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-admin-key": adminKey
+          }
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to delete chat session");
+      }
+      setChatSessions((prev) => prev.filter((item) => item.id !== sessionId));
+      if (activeSessionId === sessionId) {
+        startNewChat();
+      }
+    } catch (err) {
+      setChatError(err.message || "Failed to delete chat session");
+    }
+  };
+
+  const handleRetryJob = async (job) => {
+    if (!adminKey) {
+      setIngestError("Admin key required to retry jobs.");
+      return;
+    }
+    const jobId = job?.id;
+    if (!jobId) {
+      setIngestError("Job id missing.");
+      return;
+    }
+    if (!window.confirm("Retry this ingest job?")) {
+      return;
+    }
+    setIngestError("");
+    setContextMenu(null);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/admin/jobs/${jobId}/retry`,
+        {
+          method: "POST",
+          headers: {
+            "x-admin-key": adminKey
+          }
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to retry job");
+      }
+      loadIngestJobs();
+    } catch (err) {
+      setIngestError(err.message || "Failed to retry job");
+    }
+  };
+
+  const handleCancelJob = async (job) => {
+    if (!adminKey) {
+      setIngestError("Admin key required to cancel jobs.");
+      return;
+    }
+    const jobId = job?.id;
+    if (!jobId) {
+      setIngestError("Job id missing.");
+      return;
+    }
+    if (!window.confirm("Cancel this ingest job?")) {
+      return;
+    }
+    setIngestError("");
+    setContextMenu(null);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/admin/jobs/${jobId}/cancel`,
+        {
+          method: "POST",
+          headers: {
+            "x-admin-key": adminKey
+          }
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to cancel job");
+      }
+      loadIngestJobs();
+    } catch (err) {
+      setIngestError(err.message || "Failed to cancel job");
+    }
   };
 
   const loadSessionMessages = async (sessionId) => {
@@ -685,8 +1093,19 @@ export default function Home() {
                 typeof project.name === "string" && project.name.includes("/")
                   ? project.name
                   : fallbackName;
+              const projectRepoId = getProjectRepo(project);
+              const lastIndexed =
+                projectRepoId && adminKey
+                  ? lastIndexedByRepo.get(projectRepoId)
+                  : null;
               return (
-                <div className="project-item" key={projectId}>
+                <div
+                  className="project-item"
+                  key={projectId}
+                  onContextMenu={(event) =>
+                    openContextMenu(event, { type: "project", project })
+                  }
+                >
                   <button
                     type="button"
                     className="project-button"
@@ -700,6 +1119,15 @@ export default function Home() {
                       <p>
                         {project.description || "No description yet."}
                       </p>
+                      {adminKey ? (
+                        <p className="project-meta">
+                          {lastIndexed
+                            ? `Last indexed: ${formatTimestamp(
+                                lastIndexed.value
+                              )}`
+                            : "Last indexed: not yet"}
+                        </p>
+                      ) : null}
                       {project.repo ? (
                         <a href={project.repo} target="_blank" rel="noreferrer">
                           View on GitHub
@@ -721,12 +1149,20 @@ export default function Home() {
               placeholder="https://github.com/owner/repo"
               value={repoUrl}
               onChange={(event) => setRepoUrl(event.target.value)}
+              disabled={!adminKey}
               required
             />
           </label>
-          <button type="submit" className="primary-button" disabled={adding}>
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={!adminKey || adding}
+          >
             {adding ? "Adding..." : "Add project"}
           </button>
+          {!adminKey ? (
+            <p className="status error">Admin key required to add projects.</p>
+          ) : null}
           {message ? <p className="status">{message}</p> : null}
         </form>
       </aside>
@@ -880,6 +1316,9 @@ export default function Home() {
                   type="button"
                   className={`chat-session${isActive ? " active" : ""}`}
                   onClick={() => handleSelectSession(session.id)}
+                  onContextMenu={(event) =>
+                    openContextMenu(event, { type: "session", session })
+                  }
                 >
                   <span className="chat-session-title">{label}</span>
                   {timestamp ? (
@@ -890,7 +1329,128 @@ export default function Home() {
             })
           )}
         </div>
+        {adminKey ? (
+          <div className="ingest-panel">
+            <div className="sidebar-row">
+              <h3>Ingest jobs</h3>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={loadIngestJobs}
+                disabled={ingestLoading}
+              >
+                Refresh
+              </button>
+            </div>
+            <div className="ingest-list">
+              {ingestLoading ? (
+                <p className="muted">Loading jobs...</p>
+              ) : ingestError ? (
+                <p className="status error">{ingestError}</p>
+              ) : ingestJobs.length === 0 ? (
+                <p className="muted">No ingest jobs yet.</p>
+              ) : (
+                ingestJobs.map((job) => {
+                  const statusLabel = formatJobStatus(job.status);
+                  const progress = formatJobProgress(job);
+                  const timestamp = formatTimestamp(
+                    job.updatedAt || job.createdAt
+                  );
+                  return (
+                    <div
+                      key={job.id}
+                      className="ingest-item"
+                      onContextMenu={(event) =>
+                        openContextMenu(event, { type: "job", job })
+                      }
+                    >
+                      <div className="ingest-title">
+                        {job.projectName || job.projectRepo}
+                      </div>
+                      <div className="ingest-meta">
+                        <span className={`ingest-status ${job.status || ""}`}>
+                          {statusLabel}
+                        </span>
+                        {progress ? <span>{progress}</span> : null}
+                      </div>
+                      {job.lastMessage ? (
+                        <div className="ingest-detail">{job.lastMessage}</div>
+                      ) : null}
+                      {timestamp ? (
+                        <div className="ingest-time">{timestamp}</div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        ) : null}
       </aside>
+
+      {contextMenu ? (
+        <div
+          className="context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          ref={contextMenuRef}
+          role="menu"
+        >
+          {contextMenu.type === "project" ? (
+            <>
+              <button
+                type="button"
+                className="context-menu-item"
+                onClick={() => handleReindexProject(contextMenu.project)}
+              >
+                Reindex project
+              </button>
+              <button
+                type="button"
+                className="context-menu-item danger"
+                onClick={() => handleDeleteProject(contextMenu.project)}
+              >
+                Delete project
+              </button>
+            </>
+          ) : null}
+          {contextMenu.type === "session" ? (
+            <button
+              type="button"
+              className="context-menu-item danger"
+              onClick={() => handleDeleteSession(contextMenu.session)}
+            >
+              Delete chat
+            </button>
+          ) : null}
+          {contextMenu.type === "job" ? (
+            <>
+              <button
+                type="button"
+                className="context-menu-item"
+                onClick={() => handleRetryJob(contextMenu.job)}
+              >
+                Retry job
+              </button>
+              <button
+                type="button"
+                className="context-menu-item danger"
+                onClick={() => handleCancelJob(contextMenu.job)}
+              >
+                Cancel job
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        className={`admin-key-button${adminKey ? " active" : ""}`}
+        onClick={promptAdminKey}
+        title={adminKey ? "Admin key set" : "Set admin key"}
+      >
+        Admin
+      </button>
 
       {isAboutOpen ? (
         <div

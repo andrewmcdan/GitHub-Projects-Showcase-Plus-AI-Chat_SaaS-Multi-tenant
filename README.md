@@ -1,32 +1,47 @@
 # GitHub Projects Homepage + AI Chat
 
-## What this MVP does
-- Curated project list from `projects.yaml`
-- Public chat widget that answers using indexed GitHub docs
-- Citations back to GitHub files/refs
+A curated homepage for your GitHub portfolio with an AI assistant that answers
+questions using indexed repository content and cites the exact files.
 
-## Local development (scaffold)
-1) Copy `.env.example` to `.env` and fill in values.
-2) Install deps at repo root: `npm install`
-3) Start apps:
-   - API: `npm --workspace apps/api run dev`
-   - Worker: `npm --workspace apps/worker run dev`
-   - Web: `npm --workspace apps/web run dev`
+## Overview
+This app turns a short list of repos into a searchable, citeable knowledge base.
+It ingests repo code and docs, stores embeddings in Postgres + pgvector, and
+streams chat responses with source links.
 
-## Deployment notes
-- Target: single Lightsail instance with Docker Compose.
-- DNS: Lightsail DNS.
-- Full checklist: `MVP Build Checklist.md`.
+## Core capabilities
+- Project catalog sourced from `projects.yaml` (managed via the UI in admin mode).
+- Full-repo ingest (code + docs) with chunking and embeddings.
+- Hybrid retrieval (vector + lexical) with citations per answer.
+- SSE streaming chat with session history per browser.
+- Admin controls: add/remove repos, reindex per project, view ingest jobs,
+  retry/cancel jobs.
+- Configurable session expiry (default 90 days).
 
-## Docker Compose (local)
-1) Ensure `.env` exists.
-2) Run: `docker compose -f infra/compose/docker-compose.yml up --build`
-3) Stop: `docker compose -f infra/compose/docker-compose.yml down`
+## How it works
+1. Projects are listed in `projects.yaml` (or added via the UI).
+2. The worker ingests each repo, stores files in MinIO, and writes chunks +
+   embeddings to Postgres.
+3. The API retrieves relevant chunks, builds context, and streams responses with
+   citations.
+4. The web UI displays the catalog, chat, sources, and job status.
 
-## Tech choices
-- Backend: Node + Fastify
-- Frontend: Next.js
-- DB/Vector: Postgres + pgvector
-- Object store: MinIO
-- LLM: OpenAI API
-- GitHub auth: GitHub App
+## Architecture
+- Web: Next.js UI
+- API: Fastify + OpenAI
+- Worker: BullMQ ingest pipeline
+- Storage: Postgres + pgvector, MinIO, Redis
+
+## Admin mode
+Admin actions (add/remove repos, reindex, delete chats, job controls) require
+`ADMIN_API_KEY` and the `x-admin-key` header. In the UI, click the tiny Admin
+button in the bottom-left corner to enter the key; right-click items to see admin
+actions.
+
+## Quick start (Docker)
+1. Copy `.env.example` to `.env` and fill in credentials.
+2. Run: `docker compose -f infra/compose/docker-compose.yml up --build`
+3. Open `http://localhost:3000`
+
+## Notes
+- Local sessions are per browser (based on a stored visitor id).
+- Use a GitHub App or PAT to avoid rate limits during ingest.
