@@ -1,5 +1,7 @@
 # GitHub Projects Homepage + AI Chat
 
+**Live demo:** https://a-mcd.com/showcase
+
 A curated homepage for your GitHub portfolio with an AI assistant that answers
 questions using indexed repository content and cites the exact files.
 

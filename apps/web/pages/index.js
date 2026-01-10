@@ -490,12 +490,12 @@ export default function Home() {
     try {
       const response = await fetch(`${API_BASE_URL}/projects`);
       if (!response.ok) {
-        throw new Error("Failed to load projects");
+        throw new Error("Failed to load showcase entries.");
       }
       const data = await response.json();
       setProjects(Array.isArray(data.projects) ? data.projects : []);
     } catch (err) {
-      setError(err.message || "Failed to load projects");
+      setError(err.message || "Failed to load showcase entries.");
     } finally {
       setLoading(false);
     }
@@ -748,7 +748,7 @@ export default function Home() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!adminKey) {
-      setMessage("Admin key required to add projects.");
+      setMessage("Admin key required to add to the showcase.");
       return;
     }
     setAdding(true);
@@ -764,23 +764,23 @@ export default function Home() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to add project");
+        throw new Error(payload.error || "Failed to add repo to showcase.");
       }
       if (payload.status === "exists") {
-        setMessage("Project already listed.");
+        setMessage("Repo already listed.");
       } else if (payload.ingestJob) {
-        setMessage("Project added. Indexing queued.");
+        setMessage("Repo added. Indexing queued.");
       } else if (payload.ingestError) {
         setMessage(
-          `Project added, but indexing failed: ${payload.ingestError}`
+          `Repo added, but indexing failed: ${payload.ingestError}`
         );
       } else {
-        setMessage("Project added.");
+        setMessage("Repo added.");
       }
       setRepoUrl("");
       await loadProjects();
     } catch (err) {
-      setMessage(err.message || "Failed to add project");
+      setMessage(err.message || "Failed to add repo to showcase.");
     } finally {
       setAdding(false);
     }
@@ -850,17 +850,17 @@ export default function Home() {
 
   const handleDeleteProject = async (project) => {
     if (!adminKey) {
-      setMessage("Admin key required to delete projects.");
+      setMessage("Admin key required to remove repos.");
       return;
     }
     const projectId =
       typeof project?.id === "string" ? project.id.trim() : "";
     if (!projectId) {
-      setMessage("Project id missing.");
+      setMessage("Repo id missing.");
       return;
     }
     const label = project?.name || project?.repo || projectId;
-    if (!window.confirm(`Delete project "${label}"?`)) {
+    if (!window.confirm(`Remove "${label}" from the showcase?`)) {
       return;
     }
     setMessage("");
@@ -879,28 +879,28 @@ export default function Home() {
       );
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to delete project");
+        throw new Error(payload.error || "Failed to remove repo.");
       }
-      setMessage("Project removed.");
+      setMessage("Repo removed from showcase.");
       await loadProjects();
     } catch (err) {
-      setMessage(err.message || "Failed to delete project");
+      setMessage(err.message || "Failed to remove repo.");
     }
   };
 
   const handleReindexProject = async (project) => {
     if (!adminKey) {
-      setMessage("Admin key required to reindex projects.");
+      setMessage("Admin key required to reindex repos.");
       return;
     }
     const projectId =
       typeof project?.id === "string" ? project.id.trim() : "";
     if (!projectId) {
-      setMessage("Project id missing.");
+      setMessage("Repo id missing.");
       return;
     }
     const label = project?.name || project?.repo || projectId;
-    if (!window.confirm(`Reindex project "${label}" now?`)) {
+    if (!window.confirm(`Reindex repo "${label}" now?`)) {
       return;
     }
     setMessage("");
@@ -921,12 +921,12 @@ export default function Home() {
       );
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to reindex project");
+        throw new Error(payload.error || "Failed to reindex repo.");
       }
       setMessage("Reindex queued.");
       loadIngestJobs();
     } catch (err) {
-      setMessage(err.message || "Failed to reindex project");
+      setMessage(err.message || "Failed to reindex repo.");
     }
   };
 
@@ -1265,17 +1265,19 @@ export default function Home() {
     <main className="layout">
       <aside className="panel sidebar">
         <div className="sidebar-header">
-          <p className="eyebrow">Projects</p>
-          <h2>Project catalog</h2>
+          <p className="eyebrow">Showcase</p>
+          <h2>Showcase catalog</h2>
         </div>
 
         <div className="project-list">
           {loading ? (
-            <p className="muted">Loading projects...</p>
+            <p className="muted">Loading showcase entries...</p>
           ) : error ? (
             <p className="status error">{error}</p>
           ) : projects.length === 0 ? (
-            <p className="muted">No projects yet. Add your first repo below.</p>
+            <p className="muted">
+              No showcase entries yet. Add your first repo below.
+            </p>
           ) : (
             projectGroups.map(([category, categoryProjects]) => (
               <div className="project-group" key={category}>
@@ -1372,10 +1374,12 @@ export default function Home() {
             className="primary-button"
             disabled={!adminKey || adding}
           >
-            {adding ? "Adding..." : "Add project"}
+            {adding ? "Adding..." : "Add to showcase"}
           </button>
           {!adminKey ? (
-            <p className="status error">Admin key required to add projects.</p>
+            <p className="status error">
+              Admin key required to add to the showcase.
+            </p>
           ) : null}
           {message ? <p className="status">{message}</p> : null}
         </form>
@@ -1383,9 +1387,9 @@ export default function Home() {
 
       <section className="main">
         <header className="hero">
-          <p className="eyebrow">GitHub Projects</p>
+          <p className="eyebrow">GitHub Projects Showcase</p>
           <div className="hero-title">
-            <h1>Projects + AI Chat</h1>
+            <h1>Showcase + AI Chat</h1>
             <button
               type="button"
               className="ghost-button about-button"
@@ -1395,14 +1399,14 @@ export default function Home() {
             </button>
           </div>
           <p className="lede">
-            A curated homepage with an AI assistant that answers using GitHub as
+            A curated showcase with an AI assistant that answers using GitHub as
             the source of truth.
           </p>
         </header>
 
         <section className="chat-window">
           <div className="chat-header">
-            <h2>Ask about these projects</h2>
+            <h2>Ask about these repos</h2>
             {isStreaming ? (
               <button
                 type="button"
@@ -1627,14 +1631,14 @@ export default function Home() {
                 className="context-menu-item"
                 onClick={() => handleReindexProject(contextMenu.project)}
               >
-                Reindex project
+                Reindex repo
               </button>
               <button
                 type="button"
                 className="context-menu-item danger"
                 onClick={() => handleDeleteProject(contextMenu.project)}
               >
-                Delete project
+                Remove from showcase
               </button>
             </>
           ) : null}
@@ -1697,14 +1701,18 @@ export default function Home() {
             </div>
             <div className="about-body">
               <p>
-                This is my GitHub projects hub and AI workspace. It curates the
-                repos I care about and lets me ask questions using the repo code
-                as the source of truth.
+                My name is Andrew, and I built this GitHub projects showcase so
+                recruiters (and anyone who wants to run it themselves) can
+                explore my work in a conversational way. Ask questions about a
+                project to get the what and how without digging through dozens
+                of source files, and jump to the GitHub links when you want the
+                raw code.
               </p>
               <p>
-                Use the project catalog on the left to add repos, and the chat
-                in the middle to explore architecture, code, and design
-                decisions across my work.
+                The stack is Next.js + Fastify + Postgres/pgvector + Redis +
+                MinIO, and the app is proxied behind Nginx and deployed with
+                Docker on AWS Lightsail. This site was built with AI (OpenAI's
+                Codex in VS Code).
               </p>
             </div>
           </div>
