@@ -9,6 +9,36 @@ const CHAT_HISTORY_LIMIT = 8;
 const VISITOR_ID_KEY = "gh-projects-visitor-id";
 const ADMIN_KEY_STORAGE = "gh-projects-admin-key";
 const ABOUT_SEEN_KEY = "gh-projects-about-seen";
+const SLASH_COMMANDS = [
+  {
+    id: "overview",
+    label: "/overview",
+    hint: "Quick summary",
+    preview: "Give me an overview of ",
+    prompt: (project) => `Give me an overview of ${project}.`
+  },
+  {
+    id: "architecture",
+    label: "/architecture",
+    hint: "System structure",
+    preview: "Explain the architecture of ",
+    prompt: (project) => `Explain the architecture of ${project}.`
+  },
+  {
+    id: "stack",
+    label: "/stack",
+    hint: "Tech choices",
+    preview: "What is the tech stack for ",
+    prompt: (project) => `What is the tech stack for ${project}?`
+  },
+  {
+    id: "setup",
+    label: "/setup",
+    hint: "Local setup",
+    preview: "How do I set up ",
+    prompt: (project) => `How do I set up ${project} locally?`
+  }
+];
 
 const extractRepoFromUrl = (value) => {
   if (typeof value !== "string") {
@@ -126,6 +156,53 @@ const getProjectRepo = (project) => {
   }
 
   return null;
+};
+
+const getProjectLabel = (project) => {
+  if (!project || typeof project !== "object") {
+    return "this project";
+  }
+  const repoId = getProjectRepo(project);
+  if (repoId) {
+    return repoId;
+  }
+  const nameValue =
+    typeof project.name === "string" ? project.name.trim() : "";
+  if (nameValue) {
+    return nameValue;
+  }
+  const repoValue =
+    typeof project.repo === "string" ? project.repo.trim() : "";
+  if (repoValue) {
+    return repoValue;
+  }
+  const idValue = typeof project.id === "string" ? project.id.trim() : "";
+  return idValue || "this project";
+};
+
+const getProjectDisplayName = (project) => {
+  if (!project || typeof project !== "object") {
+    return "Unknown project";
+  }
+  const nameValue =
+    typeof project.name === "string" ? project.name.trim() : "";
+  const repoId = getProjectRepo(project);
+  if (nameValue && repoId && nameValue !== repoId) {
+    return `${nameValue} (${repoId})`;
+  }
+  if (nameValue) {
+    return nameValue;
+  }
+  if (repoId) {
+    return repoId;
+  }
+  const repoValue =
+    typeof project.repo === "string" ? project.repo.trim() : "";
+  if (repoValue) {
+    return repoValue;
+  }
+  const idValue = typeof project.id === "string" ? project.id.trim() : "";
+  return idValue || "Unknown project";
 };
 
 const normalizeRepoId = (value) => {
@@ -450,6 +527,9 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [expandedProjectId, setExpandedProjectId] = useState(null);
   const [chatInput, setChatInput] = useState("");
+  const [slashStep, setSlashStep] = useState(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashCommand, setSlashCommand] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatError, setChatError] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -479,6 +559,47 @@ export default function Home() {
     () => buildLastIndexedMap(ingestJobs),
     [ingestJobs]
   );
+  const projectOptions = useMemo(() => {
+    const options = (projects || []).map((project, index) => {
+      const label = getProjectDisplayName(project);
+      const value = getProjectLabel(project);
+      const key =
+        (typeof project?.id === "string" && project.id.trim()) ||
+        value ||
+        label ||
+        `project-${index}`;
+      return { key, label, value, project };
+    });
+    options.sort((a, b) => a.label.localeCompare(b.label));
+    return options;
+  }, [projects]);
+  const activeProjectLabel = useMemo(() => {
+    if (!activeRepo) {
+      return "";
+    }
+    const normalizedActive = normalizeRepoId(activeRepo) || activeRepo;
+    const match = (projects || []).find((project) => {
+      const repoId = getProjectRepo(project);
+      if (repoId && normalizedActive && repoId === normalizedActive) {
+        return true;
+      }
+      const projectId =
+        typeof project?.id === "string" ? project.id.trim() : "";
+      if (projectId && projectId === activeRepo) {
+        return true;
+      }
+      const repoValue =
+        typeof project?.repo === "string" ? project.repo.trim() : "";
+      if (repoValue && normalizedActive && repoValue.includes(normalizedActive)) {
+        return true;
+      }
+      return false;
+    });
+    if (match) {
+      return getProjectDisplayName(match);
+    }
+    return activeRepo;
+  }, [activeRepo, projects]);
   const projectGroups = useMemo(
     () => groupProjectsByCategory(projects),
     [projects]
@@ -649,6 +770,22 @@ export default function Home() {
   useEffect(() => {
     autoScrollRef.current = autoScroll;
   }, [autoScroll]);
+
+  useEffect(() => {
+    if (!slashStep) {
+      return;
+    }
+    const options = slashStep === "commands" ? SLASH_COMMANDS : projectOptions;
+    if (options.length === 0) {
+      if (slashIndex !== 0) {
+        setSlashIndex(0);
+      }
+      return;
+    }
+    if (slashIndex > options.length - 1) {
+      setSlashIndex(options.length - 1);
+    }
+  }, [slashStep, slashIndex, projectOptions]);
 
   useEffect(() => {
     if (!adminKey) {
@@ -1100,12 +1237,33 @@ export default function Home() {
     await loadSessionMessages(sessionId);
   };
 
-  const submitChat = async () => {
-    if (!chatInput.trim() || isStreaming) {
+  const closeSlashMenu = () => {
+    setSlashStep(null);
+    setSlashIndex(0);
+    setSlashCommand(null);
+  };
+
+  const openSlashCommands = (nextIndex = 0) => {
+    setSlashStep("commands");
+    setSlashIndex(nextIndex);
+    setSlashCommand(null);
+  };
+
+  const openSlashProjects = (command) => {
+    setSlashStep("projects");
+    setSlashIndex(0);
+    setSlashCommand(command || null);
+  };
+
+  const submitChat = async (questionOverride) => {
+    const rawQuestion =
+      typeof questionOverride === "string" ? questionOverride : chatInput;
+    const question = rawQuestion.trim();
+    if (!question || isStreaming) {
       return;
     }
 
-    const question = chatInput.trim();
+    closeSlashMenu();
     const history = buildHistoryPayload(chatMessages);
     const repoMatch = resolveRepoFromQuestion(question, projects);
     const explicitRepo = repoMatch?.explicit ? repoMatch.repo : null;
@@ -1249,17 +1407,110 @@ export default function Home() {
     }
   };
 
+  const handleSlashCommandSelect = (command) => {
+    if (!command) {
+      return;
+    }
+    setChatInput(command.preview);
+    openSlashProjects(command);
+  };
+
+  const handleSlashProjectSelect = (project) => {
+    if (!slashCommand) {
+      return;
+    }
+    const projectLabel = getProjectLabel(project);
+    const question = slashCommand.prompt(projectLabel);
+    closeSlashMenu();
+    submitChat(question);
+  };
+
+  const handleSlashKeyDown = (event) => {
+    if (!slashStep) {
+      return false;
+    }
+    const options =
+      slashStep === "commands" ? SLASH_COMMANDS : projectOptions;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSlashMenu();
+      return true;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (options.length === 0) {
+        return true;
+      }
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      setSlashIndex((current) => {
+        const next = current + delta;
+        if (next < 0) {
+          return options.length - 1;
+        }
+        if (next >= options.length) {
+          return 0;
+        }
+        return next;
+      });
+      return true;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const selected = options[slashIndex];
+      if (!selected) {
+        return true;
+      }
+      if (slashStep === "commands") {
+        handleSlashCommandSelect(selected);
+      } else {
+        handleSlashProjectSelect(selected.project);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  const handleChatInputChange = (event) => {
+    const nextValue = event.target.value;
+    setChatInput(nextValue);
+    if (slashStep === "projects") {
+      return;
+    }
+    const trimmed = nextValue.trimStart();
+    if (!trimmed.startsWith("/")) {
+      if (slashStep) {
+        closeSlashMenu();
+      }
+      return;
+    }
+    const query = trimmed.slice(1).toLowerCase();
+    const matchIndex = SLASH_COMMANDS.findIndex((command) =>
+      command.label.slice(1).startsWith(query)
+    );
+    openSlashCommands(matchIndex >= 0 ? matchIndex : 0);
+  };
+
   const handleChatSubmit = (event) => {
     event.preventDefault();
     submitChat();
   };
 
   const handleChatKeyDown = (event) => {
+    if (handleSlashKeyDown(event)) {
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       submitChat();
     }
   };
+
+  const chatPlaceholder = activeProjectLabel
+    ? `Context: ${activeProjectLabel}. Ask about architecture, code, or design decisions...`
+    : "Type / for quick prompts, or ask about architecture, code, or design decisions...";
+  const chatHint = activeProjectLabel
+    ? `Context: ${activeProjectLabel} | Type / for quick prompts.`
+    : "Type / for quick prompts.";
 
   return (
     <main className="layout">
@@ -1482,16 +1733,86 @@ export default function Home() {
             )}
           </div>
           <form className="chat-input" onSubmit={handleChatSubmit}>
-            <textarea
-              rows={3}
-              placeholder="Ask about architecture, code, or design decisions..."
-              value={chatInput}
-              onChange={(event) => setChatInput(event.target.value)}
-              onKeyDown={handleChatKeyDown}
-              required
-            />
+            <div className="chat-input-field">
+              <textarea
+                rows={3}
+                placeholder={chatPlaceholder}
+                value={chatInput}
+                onChange={handleChatInputChange}
+                onKeyDown={handleChatKeyDown}
+                required
+              />
+              {slashStep ? (
+                <div
+                  className="slash-menu"
+                  role="listbox"
+                  aria-label={
+                    slashStep === "commands"
+                      ? "Quick prompts"
+                      : "Select a project"
+                  }
+                >
+                  <div className="slash-menu-header">
+                    {slashStep === "commands"
+                      ? "Quick prompts"
+                      : "Select a project"}
+                  </div>
+                  {slashStep === "commands" ? (
+                    <div className="slash-menu-list">
+                      {SLASH_COMMANDS.map((command, index) => (
+                        <button
+                          key={command.id}
+                          type="button"
+                          className={`slash-menu-item${
+                            index === slashIndex ? " is-active" : ""
+                          }`}
+                          onClick={() => handleSlashCommandSelect(command)}
+                          role="option"
+                          aria-selected={index === slashIndex}
+                        >
+                          <span className="slash-menu-item-label">
+                            {command.label}
+                          </span>
+                          <span className="slash-menu-item-hint">
+                            {command.hint}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : projectOptions.length === 0 ? (
+                    <div className="slash-menu-empty">
+                      {loading
+                        ? "Loading projects..."
+                        : "No projects available yet."}
+                    </div>
+                  ) : (
+                    <div className="slash-menu-list">
+                      {projectOptions.map((option, index) => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          className={`slash-menu-item${
+                            index === slashIndex ? " is-active" : ""
+                          }`}
+                          onClick={() => handleSlashProjectSelect(option.project)}
+                          role="option"
+                          aria-selected={index === slashIndex}
+                        >
+                          <span className="slash-menu-item-label">
+                            {option.label}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+            <p className="chat-hint">{chatHint}</p>
             <div className="chat-actions">
-              {chatError ? <span className="status error">{chatError}</span> : null}
+              {chatError ? (
+                <span className="status error">{chatError}</span>
+              ) : null}
               <button type="submit" className="primary-button" disabled={isStreaming}>
                 {isStreaming ? "Streaming..." : "Send"}
               </button>
