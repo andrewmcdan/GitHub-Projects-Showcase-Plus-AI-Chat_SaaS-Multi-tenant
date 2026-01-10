@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -7,8 +8,44 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 const CHAT_HISTORY_LIMIT = 8;
 const VISITOR_ID_KEY = "gh-projects-visitor-id";
-const ADMIN_KEY_STORAGE = "gh-projects-admin-key";
 const ABOUT_SEEN_KEY = "gh-projects-about-seen";
+
+const normalizeBasePath = (value) => {
+  if (!value) {
+    return "";
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed || trimmed === "/") {
+    return "";
+  }
+  return `/${trimmed.replace(/^\/+|\/+$/g, "")}`;
+};
+
+const basePath = normalizeBasePath(process.env.NEXT_PUBLIC_BASE_PATH);
+
+const buildApiUrl = (path, params = {}) => {
+  const url = new URL(`${API_BASE_URL}${path}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, value);
+    }
+  });
+  return url.toString();
+};
+
+const normalizeHandle = (value) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().replace(/^@/, "").toLowerCase();
+};
+
+const buildSharePath = (handle) => {
+  if (!handle) {
+    return "";
+  }
+  return `${basePath}/${handle}`.replace(/\/+/g, "/");
+};
 const SLASH_COMMANDS = [
   {
     id: "overview",
@@ -454,77 +491,17 @@ const formatSessionTime = (value) => {
   });
 };
 
-const formatTimestamp = (value) => {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-};
-
-const formatJobStatus = (status) => {
-  if (!status) {
-    return "unknown";
-  }
-  return String(status).replace(/_/g, " ");
-};
-
-const formatJobProgress = (job) => {
-  if (!job || typeof job !== "object") {
-    return "";
-  }
-  const total = Number.isFinite(job.totalFiles) ? job.totalFiles : 0;
-  const processed = Number.isFinite(job.filesProcessed)
-    ? job.filesProcessed
-    : 0;
-  const chunks = Number.isFinite(job.chunksStored) ? job.chunksStored : 0;
-  if (total > 0) {
-    return `${processed}/${total} files · ${chunks} chunks`;
-  }
-  if (processed > 0 || chunks > 0) {
-    return `${processed} files · ${chunks} chunks`;
-  }
-  return "";
-};
-
-const buildLastIndexedMap = (jobs) => {
-  const map = new Map();
-  for (const job of jobs || []) {
-    if (!job || job.status !== "completed") {
-      continue;
-    }
-    const repoId = normalizeRepoId(job.projectRepo);
-    if (!repoId) {
-      continue;
-    }
-    const finishedAt = job.finishedAt || job.updatedAt || job.createdAt;
-    const timestamp = new Date(finishedAt || "").getTime();
-    if (!Number.isFinite(timestamp)) {
-      continue;
-    }
-    const existing = map.get(repoId);
-    if (!existing || timestamp > existing.timestamp) {
-      map.set(repoId, { timestamp, value: finishedAt });
-    }
-  }
-  return map;
-};
-
 export default function Home() {
+  const router = useRouter();
+  const routeHandle = normalizeHandle(
+    Array.isArray(router.query.handle)
+      ? router.query.handle[0]
+      : router.query.handle
+  );
   const [projects, setProjects] = useState([]);
+  const [owner, setOwner] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [repoUrl, setRepoUrl] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [message, setMessage] = useState("");
   const [expandedProjectId, setExpandedProjectId] = useState(null);
   const [chatInput, setChatInput] = useState("");
   const [slashStep, setSlashStep] = useState(null);
@@ -541,10 +518,8 @@ export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
-  const [adminKey, setAdminKey] = useState("");
-  const [ingestJobs, setIngestJobs] = useState([]);
-  const [ingestLoading, setIngestLoading] = useState(false);
-  const [ingestError, setIngestError] = useState("");
+  const [authUser, setAuthUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const abortRef = useRef(null);
@@ -555,10 +530,6 @@ export default function Home() {
   const isAutoScrollingRef = useRef(false);
   const telemetryStartRef = useRef(null);
   const telemetryPageViewRef = useRef(false);
-  const lastIndexedByRepo = useMemo(
-    () => buildLastIndexedMap(ingestJobs),
-    [ingestJobs]
-  );
   const projectOptions = useMemo(() => {
     const options = (projects || []).map((project, index) => {
       const label = getProjectDisplayName(project);
@@ -609,16 +580,48 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/projects`);
+      const response = await fetch(
+        buildApiUrl("/projects", routeHandle ? { handle: routeHandle } : {}),
+        { credentials: "include" }
+      );
+      if (response.status === 401 && !routeHandle) {
+        setProjects([]);
+        setOwner(null);
+        return;
+      }
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Showcase not found.");
+        }
         throw new Error("Failed to load showcase entries.");
       }
       const data = await response.json();
       setProjects(Array.isArray(data.projects) ? data.projects : []);
+      setOwner(data.owner || null);
     } catch (err) {
       setError(err.message || "Failed to load showcase entries.");
+      setOwner(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAuthUser = async () => {
+    setAuthLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        credentials: "include"
+      });
+      if (!response.ok) {
+        setAuthUser(null);
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      setAuthUser(data.user || null);
+    } catch {
+      setAuthUser(null);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -626,13 +629,18 @@ export default function Home() {
     if (!visitorId) {
       return;
     }
+    if (!routeHandle && !authUser) {
+      return;
+    }
     setSessionsLoading(true);
     setSessionsError("");
     try {
       const response = await fetch(
-        `${API_BASE_URL}/chat/sessions?visitorId=${encodeURIComponent(
-          visitorId
-        )}`
+        buildApiUrl("/chat/sessions", {
+          visitorId,
+          handle: routeHandle || undefined
+        }),
+        { credentials: "include" }
       );
       if (!response.ok) {
         throw new Error("Failed to load sessions");
@@ -646,31 +654,16 @@ export default function Home() {
     }
   };
 
-  const loadIngestJobs = async () => {
-    if (!adminKey) {
-      return;
-    }
-    setIngestLoading(true);
-    setIngestError("");
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/jobs?limit=25`, {
-        headers: { "x-admin-key": adminKey }
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || "Failed to load ingest jobs");
-      }
-      const data = await response.json();
-      setIngestJobs(Array.isArray(data.jobs) ? data.jobs : []);
-    } catch (err) {
-      setIngestError(err.message || "Failed to load ingest jobs");
-    } finally {
-      setIngestLoading(false);
-    }
-  };
 
   useEffect(() => {
+    if (!routeHandle && authLoading) {
+      return;
+    }
     loadProjects();
+  }, [routeHandle, authLoading]);
+
+  useEffect(() => {
+    loadAuthUser();
   }, []);
 
   useEffect(() => {
@@ -750,16 +743,6 @@ export default function Home() {
     if (typeof window === "undefined") {
       return;
     }
-    const stored = window.localStorage.getItem(ADMIN_KEY_STORAGE);
-    if (stored) {
-      setAdminKey(stored);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
     const seen = window.localStorage.getItem(ABOUT_SEEN_KEY);
     if (!seen) {
       setIsAboutOpen(true);
@@ -788,23 +771,17 @@ export default function Home() {
   }, [slashStep, slashIndex, projectOptions]);
 
   useEffect(() => {
-    if (!adminKey) {
-      setIngestJobs([]);
-      setIngestError("");
-      return;
-    }
-    loadIngestJobs();
-    const intervalId = window.setInterval(() => {
-      loadIngestJobs();
-    }, 20000);
-    return () => window.clearInterval(intervalId);
-  }, [adminKey]);
-
-  useEffect(() => {
     if (visitorId) {
       loadSessions();
     }
-  }, [visitorId]);
+  }, [visitorId, routeHandle, authUser]);
+
+  useEffect(() => {
+    setChatSessions([]);
+    setChatMessages([]);
+    setActiveSessionId(null);
+    setActiveRepo(null);
+  }, [routeHandle]);
 
   useEffect(() => {
     const container = chatStreamRef.current;
@@ -882,47 +859,6 @@ export default function Home() {
     };
   }, [contextMenu]);
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    if (!adminKey) {
-      setMessage("Admin key required to add to the showcase.");
-      return;
-    }
-    setAdding(true);
-    setMessage("");
-    try {
-      const response = await fetch(`${API_BASE_URL}/projects`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey
-        },
-        body: JSON.stringify({ repoUrl })
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to add repo to showcase.");
-      }
-      if (payload.status === "exists") {
-        setMessage("Repo already listed.");
-      } else if (payload.ingestJob) {
-        setMessage("Repo added. Indexing queued.");
-      } else if (payload.ingestError) {
-        setMessage(
-          `Repo added, but indexing failed: ${payload.ingestError}`
-        );
-      } else {
-        setMessage("Repo added.");
-      }
-      setRepoUrl("");
-      await loadProjects();
-    } catch (err) {
-      setMessage(err.message || "Failed to add repo to showcase.");
-    } finally {
-      setAdding(false);
-    }
-  };
-
   const toggleProject = (projectId) => {
     setExpandedProjectId((current) =>
       current === projectId ? null : projectId
@@ -943,37 +879,38 @@ export default function Home() {
     setIsAboutOpen(false);
   };
 
-  const promptAdminKey = () => {
+  const handleAuthStart = () => {
     if (typeof window === "undefined") {
       return;
     }
-    const next = window.prompt(
-      adminKey
-        ? "Update admin key (leave blank to clear)"
-        : "Enter admin key"
-    );
-    if (next === null) {
-      return;
+    const returnTo = window.location.href;
+    const url = `${API_BASE_URL}/auth/github/start?returnTo=${encodeURIComponent(
+      returnTo
+    )}`;
+    window.location.href = url;
+  };
+
+  const handleAuthLogout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include"
+      });
+    } catch {
+      // Ignore logout errors; clear local state regardless.
+    } finally {
+      setAuthUser(null);
+      if (!routeHandle) {
+        loadProjects();
+      }
     }
-    const trimmed = next.trim();
-    if (!trimmed) {
-      window.localStorage.removeItem(ADMIN_KEY_STORAGE);
-      setAdminKey("");
-      return;
-    }
-    window.localStorage.setItem(ADMIN_KEY_STORAGE, trimmed);
-    setAdminKey(trimmed);
   };
 
   const openContextMenu = (event, menu) => {
-    if (!adminKey) {
-      return;
-    }
     event.preventDefault();
     event.stopPropagation();
     const menuWidth = 200;
-    const menuHeight =
-      menu.type === "project" || menu.type === "job" ? 120 : 72;
+    const menuHeight = 72;
     const x = Math.min(
       event.clientX,
       window.innerWidth - menuWidth - 12
@@ -985,96 +922,14 @@ export default function Home() {
     setContextMenu({ ...menu, x, y });
   };
 
-  const handleDeleteProject = async (project) => {
-    if (!adminKey) {
-      setMessage("Admin key required to remove repos.");
-      return;
-    }
-    const projectId =
-      typeof project?.id === "string" ? project.id.trim() : "";
-    if (!projectId) {
-      setMessage("Repo id missing.");
-      return;
-    }
-    const label = project?.name || project?.repo || projectId;
-    if (!window.confirm(`Remove "${label}" from the showcase?`)) {
-      return;
-    }
-    setMessage("");
-    setContextMenu(null);
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/projects/${encodeURIComponent(projectId)}`,
-        {
-          method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey
-          },
-          body: project?.repo ? JSON.stringify({ repo: project.repo }) : undefined
-        }
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to remove repo.");
-      }
-      setMessage("Repo removed from showcase.");
-      await loadProjects();
-    } catch (err) {
-      setMessage(err.message || "Failed to remove repo.");
-    }
-  };
-
-  const handleReindexProject = async (project) => {
-    if (!adminKey) {
-      setMessage("Admin key required to reindex repos.");
-      return;
-    }
-    const projectId =
-      typeof project?.id === "string" ? project.id.trim() : "";
-    if (!projectId) {
-      setMessage("Repo id missing.");
-      return;
-    }
-    const label = project?.name || project?.repo || projectId;
-    if (!window.confirm(`Reindex repo "${label}" now?`)) {
-      return;
-    }
-    setMessage("");
-    setContextMenu(null);
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/admin/projects/${encodeURIComponent(
-          projectId
-        )}/reindex`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey
-          },
-          body: project?.repo ? JSON.stringify({ repo: project.repo }) : undefined
-        }
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to reindex repo.");
-      }
-      setMessage("Reindex queued.");
-      loadIngestJobs();
-    } catch (err) {
-      setMessage(err.message || "Failed to reindex repo.");
-    }
-  };
-
   const handleDeleteSession = async (session) => {
-    if (!adminKey) {
-      setChatError("Admin key required to delete chats.");
-      return;
-    }
     const sessionId = session?.id;
     if (!sessionId) {
       setChatError("Chat session id missing.");
+      return;
+    }
+    if (!visitorId) {
+      setChatError("Visitor id missing.");
       return;
     }
     if (!window.confirm("Delete this chat session?")) {
@@ -1084,12 +939,13 @@ export default function Home() {
     setContextMenu(null);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/chat/sessions/${sessionId}`,
+        buildApiUrl(`/chat/sessions/${sessionId}`, {
+          visitorId: visitorId || undefined,
+          handle: routeHandle || undefined
+        }),
         {
           method: "DELETE",
-          headers: {
-            "x-admin-key": adminKey
-          }
+          credentials: "include"
         }
       );
       const payload = await response.json().catch(() => ({}));
@@ -1105,76 +961,6 @@ export default function Home() {
     }
   };
 
-  const handleRetryJob = async (job) => {
-    if (!adminKey) {
-      setIngestError("Admin key required to retry jobs.");
-      return;
-    }
-    const jobId = job?.id;
-    if (!jobId) {
-      setIngestError("Job id missing.");
-      return;
-    }
-    if (!window.confirm("Retry this ingest job?")) {
-      return;
-    }
-    setIngestError("");
-    setContextMenu(null);
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/admin/jobs/${jobId}/retry`,
-        {
-          method: "POST",
-          headers: {
-            "x-admin-key": adminKey
-          }
-        }
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to retry job");
-      }
-      loadIngestJobs();
-    } catch (err) {
-      setIngestError(err.message || "Failed to retry job");
-    }
-  };
-
-  const handleCancelJob = async (job) => {
-    if (!adminKey) {
-      setIngestError("Admin key required to cancel jobs.");
-      return;
-    }
-    const jobId = job?.id;
-    if (!jobId) {
-      setIngestError("Job id missing.");
-      return;
-    }
-    if (!window.confirm("Cancel this ingest job?")) {
-      return;
-    }
-    setIngestError("");
-    setContextMenu(null);
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/admin/jobs/${jobId}/cancel`,
-        {
-          method: "POST",
-          headers: {
-            "x-admin-key": adminKey
-          }
-        }
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to cancel job");
-      }
-      loadIngestJobs();
-    } catch (err) {
-      setIngestError(err.message || "Failed to cancel job");
-    }
-  };
-
   const loadSessionMessages = async (sessionId) => {
     if (!visitorId || !sessionId) {
       return;
@@ -1183,9 +969,12 @@ export default function Home() {
     setChatError("");
     try {
       const response = await fetch(
-        `${API_BASE_URL}/chat/sessions/${sessionId}/messages?visitorId=${encodeURIComponent(
-          visitorId
-        )}&limit=200`
+        buildApiUrl(`/chat/sessions/${sessionId}/messages`, {
+          visitorId,
+          handle: routeHandle || undefined,
+          limit: 200
+        }),
+        { credentials: "include" }
       );
       if (!response.ok) {
         throw new Error("Failed to load messages");
@@ -1262,6 +1051,10 @@ export default function Home() {
     if (!question || isStreaming) {
       return;
     }
+    if (!routeHandle && !authUser) {
+      setChatError("Sign in or open a public showcase to chat.");
+      return;
+    }
 
     closeSlashMenu();
     const history = buildHistoryPayload(chatMessages);
@@ -1309,6 +1102,11 @@ export default function Home() {
       if (visitorId) {
         payload.visitorId = visitorId;
       }
+      const handle =
+        routeHandle || owner?.handle || authUser?.githubUsername || "";
+      if (handle) {
+        payload.handle = handle;
+      }
       if (repo) {
         payload.repo = repo;
       }
@@ -1322,6 +1120,7 @@ export default function Home() {
           "Content-Type": "application/json",
           Accept: "text/event-stream"
         },
+        credentials: "include",
         body: JSON.stringify(payload),
         signal: controller.signal
       });
@@ -1505,6 +1304,28 @@ export default function Home() {
     }
   };
 
+  const authDisplayName = authUser
+    ? authUser.name || authUser.githubUsername || authUser.email
+    : "";
+  const ownerName = owner?.name || owner?.handle || "";
+  const ownerHandle = owner?.handle ? `@${owner.handle}` : "";
+  const shareHandle = owner?.handle || authUser?.githubUsername || "";
+  const sharePath = buildSharePath(shareHandle);
+  const ownerVisibility =
+    owner && owner.isPublic === false ? "Private showcase" : "Public showcase";
+  const shareUrl = useMemo(() => {
+    if (!sharePath) {
+      return "";
+    }
+    if (typeof window === "undefined") {
+      return sharePath;
+    }
+    return `${window.location.origin}${sharePath}`;
+  }, [sharePath]);
+  const emptyChatMessage =
+    !routeHandle && !authUser
+      ? "Sign in or open a public showcase to start chatting."
+      : "Ask a question about the indexed repos to get started.";
   const chatPlaceholder = activeProjectLabel
     ? `Context: ${activeProjectLabel}. Ask about architecture, code, or design decisions...`
     : "Type / for quick prompts, or ask about architecture, code, or design decisions...";
@@ -1517,7 +1338,8 @@ export default function Home() {
       <aside className="panel sidebar">
         <div className="sidebar-header">
           <p className="eyebrow">Showcase</p>
-          <h2>Showcase catalog</h2>
+          <h2>{ownerName ? `Showcase for ${ownerName}` : "Showcase catalog"}</h2>
+          {ownerHandle ? <span className="muted">{ownerHandle}</span> : null}
         </div>
 
         <div className="project-list">
@@ -1527,7 +1349,7 @@ export default function Home() {
             <p className="status error">{error}</p>
           ) : projects.length === 0 ? (
             <p className="muted">
-              No showcase entries yet. Add your first repo below.
+              No showcase entries yet.
             </p>
           ) : (
             projectGroups.map(([category, categoryProjects]) => (
@@ -1552,22 +1374,8 @@ export default function Home() {
                       project.name.includes("/")
                         ? project.name
                         : fallbackName;
-                    const projectRepoId = getProjectRepo(project);
-                    const lastIndexed =
-                      projectRepoId && adminKey
-                        ? lastIndexedByRepo.get(projectRepoId)
-                        : null;
                     return (
-                      <div
-                        className="project-item"
-                        key={projectId}
-                        onContextMenu={(event) =>
-                          openContextMenu(event, {
-                            type: "project",
-                            project
-                          })
-                        }
-                      >
+                      <div className="project-item" key={projectId}>
                         <button
                           type="button"
                           className="project-button"
@@ -1579,15 +1387,6 @@ export default function Home() {
                         {isExpanded ? (
                           <div className="project-details">
                             <p>{project.description || "No description yet."}</p>
-                            {adminKey ? (
-                              <p className="project-meta">
-                                {lastIndexed
-                                  ? `Last indexed: ${formatTimestamp(
-                                      lastIndexed.value
-                                    )}`
-                                  : "Last indexed: not yet"}
-                              </p>
-                            ) : null}
                             {project.repo ? (
                               <a
                                 href={project.repo}
@@ -1608,32 +1407,31 @@ export default function Home() {
           )}
         </div>
 
-        <form className="form add-project" onSubmit={handleSubmit}>
-          <label className="field">
-            <span>GitHub repo URL</span>
-            <input
-              type="url"
-              placeholder="https://github.com/owner/repo"
-              value={repoUrl}
-              onChange={(event) => setRepoUrl(event.target.value)}
-              disabled={!adminKey}
-              required
-            />
-          </label>
-          <button
-            type="submit"
-            className="primary-button"
-            disabled={!adminKey || adding}
-          >
-            {adding ? "Adding..." : "Add to showcase"}
-          </button>
-          {!adminKey ? (
-            <p className="status error">
-              Admin key required to add to the showcase.
-            </p>
-          ) : null}
-          {message ? <p className="status">{message}</p> : null}
-        </form>
+        <div className="sidebar-card">
+          {authUser ? (
+            <>
+              <p className="muted">
+                Manage your repos, usage, and billing from your account.
+              </p>
+              <Link className="primary-button" href="/account">
+                Go to account
+              </Link>
+            </>
+          ) : (
+            <>
+              <p className="muted">
+                Sign in to create your own GitHub projects showcase.
+              </p>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleAuthStart}
+              >
+                Sign in with GitHub
+              </button>
+            </>
+          )}
+        </div>
       </aside>
 
       <section className="main">
@@ -1641,18 +1439,65 @@ export default function Home() {
           <p className="eyebrow">GitHub Projects Showcase</p>
           <div className="hero-title">
             <h1>Showcase + AI Chat</h1>
-            <button
-              type="button"
-              className="ghost-button about-button"
-              onClick={openAbout}
-            >
-              About
-            </button>
+            <div className="hero-actions">
+              {authDisplayName ? (
+                <span className="hero-user">Signed in as {authDisplayName}</span>
+              ) : null}
+              <button
+                type="button"
+                className="ghost-button about-button"
+                onClick={openAbout}
+              >
+                About
+              </button>
+              {authUser ? (
+                <Link className="ghost-button" href="/account">
+                  Account
+                </Link>
+              ) : null}
+              {!authLoading ? (
+                authUser ? (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={handleAuthLogout}
+                  >
+                    Sign out
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={handleAuthStart}
+                  >
+                    Sign in with GitHub
+                  </button>
+                )
+              ) : null}
+            </div>
           </div>
           <p className="lede">
             A curated showcase with an AI assistant that answers using GitHub as
             the source of truth.
           </p>
+          {owner?.bio ? <p className="hero-bio">{owner.bio}</p> : null}
+          {shareUrl ? (
+            <div className="hero-share">
+              <span className="muted">
+                {owner?.isPublic === false ? "Private URL" : "Public URL"}
+              </span>
+              <a href={shareUrl}>{shareUrl}</a>
+            </div>
+          ) : null}
+          {ownerVisibility ? (
+            <span
+              className={`visibility-pill${
+                owner?.isPublic === false ? " is-private" : " is-public"
+              }`}
+            >
+              {ownerVisibility}
+            </span>
+          ) : null}
         </header>
 
         <section className="chat-window">
@@ -1672,9 +1517,7 @@ export default function Home() {
             {messagesLoading ? (
               <p className="muted">Loading messages...</p>
             ) : chatMessages.length === 0 ? (
-              <p className="muted">
-                Ask a question about the indexed repos to get started.
-              </p>
+              <p className="muted">{emptyChatMessage}</p>
             ) : (
               chatMessages.map((msg, index) => (
                 <div
@@ -1868,74 +1711,6 @@ export default function Home() {
             })
           )}
         </div>
-        {adminKey ? (
-          <div className="ingest-panel">
-            <div className="sidebar-row">
-              <h3>Ingest jobs</h3>
-              <div className="sidebar-actions">
-                <Link className="ghost-button" href="/telemetry">
-                  Telemetry
-                </Link>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={loadIngestJobs}
-                  disabled={ingestLoading}
-                >
-                  Refresh
-                </button>
-              </div>
-            </div>
-            <div className="ingest-list">
-              {(() => {
-                const visibleJobs = ingestJobs.filter(
-                  (job) => job && !["completed", "canceled"].includes(job.status)
-                );
-                if (ingestLoading) {
-                  return <p className="muted">Loading jobs...</p>;
-                }
-                if (ingestError) {
-                  return <p className="status error">{ingestError}</p>;
-                }
-                if (visibleJobs.length === 0) {
-                  return <p className="muted">No active ingest jobs.</p>;
-                }
-                return visibleJobs.map((job) => {
-                  const statusLabel = formatJobStatus(job.status);
-                  const progress = formatJobProgress(job);
-                  const timestamp = formatTimestamp(
-                    job.updatedAt || job.createdAt
-                  );
-                  return (
-                    <div
-                      key={job.id}
-                      className="ingest-item"
-                      onContextMenu={(event) =>
-                        openContextMenu(event, { type: "job", job })
-                      }
-                    >
-                      <div className="ingest-title">
-                        {job.projectName || job.projectRepo}
-                      </div>
-                      <div className="ingest-meta">
-                        <span className={`ingest-status ${job.status || ""}`}>
-                          {statusLabel}
-                        </span>
-                        {progress ? <span>{progress}</span> : null}
-                      </div>
-                      {job.lastMessage ? (
-                        <div className="ingest-detail">{job.lastMessage}</div>
-                      ) : null}
-                      {timestamp ? (
-                        <div className="ingest-time">{timestamp}</div>
-                      ) : null}
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          </div>
-        ) : null}
       </aside>
 
       {contextMenu ? (
@@ -1945,24 +1720,6 @@ export default function Home() {
           ref={contextMenuRef}
           role="menu"
         >
-          {contextMenu.type === "project" ? (
-            <>
-              <button
-                type="button"
-                className="context-menu-item"
-                onClick={() => handleReindexProject(contextMenu.project)}
-              >
-                Reindex repo
-              </button>
-              <button
-                type="button"
-                className="context-menu-item danger"
-                onClick={() => handleDeleteProject(contextMenu.project)}
-              >
-                Remove from showcase
-              </button>
-            </>
-          ) : null}
           {contextMenu.type === "session" ? (
             <button
               type="button"
@@ -1972,35 +1729,8 @@ export default function Home() {
               Delete chat
             </button>
           ) : null}
-          {contextMenu.type === "job" ? (
-            <>
-              <button
-                type="button"
-                className="context-menu-item"
-                onClick={() => handleRetryJob(contextMenu.job)}
-              >
-                Retry job
-              </button>
-              <button
-                type="button"
-                className="context-menu-item danger"
-                onClick={() => handleCancelJob(contextMenu.job)}
-              >
-                Cancel job
-              </button>
-            </>
-          ) : null}
         </div>
       ) : null}
-
-      <button
-        type="button"
-        className={`admin-key-button${adminKey ? " active" : ""}`}
-        onClick={promptAdminKey}
-        title={adminKey ? "Admin key set" : "Set admin key"}
-      >
-        Admin
-      </button>
 
       {isAboutOpen ? (
         <div

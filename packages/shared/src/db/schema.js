@@ -13,6 +13,11 @@ import {
 export const tenants = pgTable("tenants", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  handle: text("handle"),
+  bio: text("bio"),
+  isPublic: boolean("is_public").default(true).notNull(),
+  repoLimit: integer("repo_limit"),
+  tokenLimit: integer("token_limit"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull()
@@ -23,6 +28,9 @@ export const users = pgTable("users", {
   tenantId: integer("tenant_id").references(() => tenants.id),
   email: text("email").notNull(),
   name: text("name"),
+  githubId: text("github_id"),
+  githubUsername: text("github_username"),
+  avatarUrl: text("avatar_url"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull()
@@ -35,6 +43,7 @@ export const projects = pgTable("projects", {
   repoUrl: text("repo_url").notNull(),
   description: text("description"),
   tags: jsonb("tags"),
+  category: text("category"),
   featured: boolean("featured").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
@@ -104,6 +113,17 @@ export const chatMessages = pgTable("chat_messages", {
   role: text("role").notNull(),
   content: text("content").notNull(),
   citations: jsonb("citations"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull()
+});
+
+export const authSessions = pgTable("auth_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  tenantId: integer("tenant_id").references(() => tenants.id),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull()

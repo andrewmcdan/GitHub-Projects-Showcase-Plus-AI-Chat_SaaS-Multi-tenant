@@ -12,7 +12,6 @@ RUN npm ci
 
 COPY apps/api apps/api
 COPY packages/shared packages/shared
-COPY projects.yaml projects.yaml
 
 WORKDIR /app/apps/api
 

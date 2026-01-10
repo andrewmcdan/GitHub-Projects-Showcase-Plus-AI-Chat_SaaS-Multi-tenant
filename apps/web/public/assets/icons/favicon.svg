@@ -1,4 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" fill="#0b0d10" />
-  <path d="M16 48 L32 16 L48 48 Z" fill="none" stroke="#4da3ff" stroke-width="4" stroke-linejoin="round" />
+<svg
+  width="128"
+  height="128"
+  viewBox="0 0 128 128"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <!-- Bottom layer -->
+  <rect
+    x="32"
+    y="68"
+    width="64"
+    height="16"
+    rx="3"
+    fill="#2A2F36"
+  />
+
+  <!-- Middle layer -->
+  <rect
+    x="28"
+    y="52"
+    width="72"
+    height="16"
+    rx="3"
+    fill="#3A4048"
+  />
+
+  <!-- Top active layer -->
+  <rect
+    x="24"
+    y="36"
+    width="80"
+    height="18"
+    rx="4"
+    fill="#2EE6FF"
+  />
+
+  <!-- Query dots -->
+  <circle cx="100" cy="30" r="3" fill="#2EE6FF"/>
+  <circle cx="108" cy="38" r="2.5" fill="#9AA3AD"/>
+  <circle cx="104" cy="46" r="2" fill="#5F6873"/>
 </svg>

@@ -62,11 +62,9 @@ services:
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
-      PROJECTS_FILE: /app/projects.yaml
     ports:
       - "3001:3001"
     volumes:
-      - ../../projects.yaml:/app/projects.yaml
       - ../../secrets:/app/secrets:ro
     depends_on:
       postgres:
@@ -89,9 +87,7 @@ services:
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
-      PROJECTS_FILE: /app/projects.yaml
     volumes:
-      - ../../projects.yaml:/app/projects.yaml
       - ../../secrets:/app/secrets:ro
     depends_on:
       postgres:

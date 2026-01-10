@@ -194,6 +194,16 @@ a:hover {
   gap: 10px;
 }
 
+.sidebar-card {
+  margin-top: auto;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.85);
+}
+
 .main {
   display: flex;
   flex-direction: column;
@@ -226,6 +236,19 @@ a:hover {
   justify-content: space-between;
 }
 
+.hero-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hero-user {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.25em;
@@ -238,6 +261,49 @@ a:hover {
   font-size: 18px;
   line-height: 1.6;
   color: #433b35;
+}
+
+.hero-share {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.hero-share a {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.hero-bio {
+  margin: 0;
+  max-width: 640px;
+  color: #3f3530;
+}
+
+.visibility-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.visibility-pill.is-public {
+  color: #1f5b47;
+  border-color: rgba(31, 91, 71, 0.3);
+  background: rgba(217, 238, 231, 0.7);
+}
+
+.visibility-pill.is-private {
+  color: #6b3a32;
+  border-color: rgba(107, 58, 50, 0.35);
+  background: rgba(242, 227, 221, 0.7);
 }
 
 .chat-window {
@@ -722,9 +788,44 @@ a:hover {
   color: var(--ink);
 }
 
+.field textarea {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  background: #fff;
+  color: var(--ink);
+  resize: vertical;
+  min-height: 120px;
+}
+
 .field input:focus {
   outline: 2px solid rgba(30, 86, 118, 0.3);
   border-color: rgba(30, 86, 118, 0.6);
+}
+
+.field textarea:focus {
+  outline: 2px solid rgba(30, 86, 118, 0.3);
+  border-color: rgba(30, 86, 118, 0.6);
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.checkbox-field input {
+  width: 16px;
+  height: 16px;
 }
 
 .primary-button {
@@ -794,33 +895,6 @@ a:hover {
 
 .context-menu-item.danger {
   color: #a33b2f;
-}
-
-.admin-key-button {
-  position: fixed;
-  bottom: 4px;
-  left: 4px;
-  z-index: 70;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 2px 4px;
-  font-size: 9px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.8);
-  color: var(--muted);
-  cursor: pointer;
-  box-shadow: none;
-}
-
-.admin-key-button:hover {
-  color: var(--accent-strong);
-  border-color: rgba(30, 86, 118, 0.4);
-}
-
-.admin-key-button.active {
-  color: var(--accent-strong);
-  border-color: var(--accent);
 }
 
 .telemetry-page {
@@ -936,6 +1010,166 @@ a:hover {
   background: #f9f5ec;
 }
 
+.account-page {
+  height: 100vh;
+  padding: 32px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow: hidden;
+  animation: fadeUp 0.7s ease both;
+}
+
+.account-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.account-intro {
+  display: grid;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.account-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.account-signin {
+  display: grid;
+  gap: 12px;
+  max-width: 480px;
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+
+.account-card {
+  display: grid;
+  gap: 14px;
+}
+
+.account-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.account-share {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.account-share a {
+  word-break: break-all;
+}
+
+.account-visibility {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.account-visibility.is-public {
+  color: #1f5b47;
+  border-color: rgba(31, 91, 71, 0.3);
+  background: rgba(217, 238, 231, 0.7);
+}
+
+.account-visibility.is-private {
+  color: #6b3a32;
+  border-color: rgba(107, 58, 50, 0.35);
+  background: rgba(242, 227, 221, 0.7);
+}
+
+.account-project-list {
+  display: grid;
+  gap: 12px;
+}
+
+.account-project {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.account-project-main {
+  display: grid;
+  gap: 6px;
+}
+
+.account-project-title {
+  font-weight: 600;
+}
+
+.account-project-desc {
+  font-size: 14px;
+  color: #433b35;
+}
+
+.account-project-link {
+  font-size: 13px;
+}
+
+.account-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.account-metric {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.8);
+  display: grid;
+  gap: 4px;
+}
+
+.account-metric-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.account-metric-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.account-limits {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
 @media (max-width: 1200px) {
   .layout {
     grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
@@ -985,6 +1219,17 @@ a:hover {
 
   .telemetry-table-wrap {
     max-height: none;
+  }
+
+  .account-page {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+    padding: 24px;
+  }
+
+  .account-grid {
+    overflow: visible;
   }
 }
 

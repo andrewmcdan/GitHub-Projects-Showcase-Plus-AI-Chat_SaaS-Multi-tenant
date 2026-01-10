@@ -34,7 +34,7 @@ const minioClient = new MinioClient({
   secretKey: process.env.MINIO_SECRET_KEY || "minio123"
 });
 const artifactsBucket = process.env.MINIO_BUCKET_ARTIFACTS || "artifacts";
-const tenantId = process.env.DEFAULT_TENANT_ID || "default";
+const defaultTenantId = process.env.DEFAULT_TENANT_ID || "default";
 
 const maxFiles = Number.parseInt(process.env.INGEST_MAX_FILES || "300", 10);
 const maxFileBytes = Number.parseInt(
@@ -540,16 +540,23 @@ const fetchBlob = async (owner, repo, sha) => {
   return result.data;
 };
 
-const buildObjectKey = (owner, repo, ref, filePath) => {
+const buildObjectKey = (tenantId, owner, repo, ref, filePath) => {
   const normalizedPath = filePath.replace(/\\/g, "/");
-  return `tenants/${tenantId}/repos/${owner}/${repo}/refs/${ref}/files/${normalizedPath}`;
+  const tenantKey = tenantId || defaultTenantId;
+  return `tenants/${tenantKey}/repos/${owner}/${repo}/refs/${ref}/files/${normalizedPath}`;
 };
 
-const purgeExistingSources = async (owner, repo) => {
+const purgeExistingSources = async ({ projectId, owner, repo }) => {
+  if (!projectId && (!owner || !repo)) {
+    return;
+  }
+  const predicate = projectId
+    ? eq(sources.projectId, projectId)
+    : and(eq(sources.repoOwner, owner), eq(sources.repoName, repo));
   const existing = await db
     .select({ id: sources.id })
     .from(sources)
-    .where(and(eq(sources.repoOwner, owner), eq(sources.repoName, repo)));
+    .where(predicate);
 
   if (existing.length === 0) {
     return;
@@ -593,12 +600,12 @@ const cancelIfRequested = async (ingestJobId) => {
   await updateJob(ingestJobId, {
     status: "canceled",
     finishedAt: new Date(),
-    lastMessage: "Canceled by admin"
+    lastMessage: "Canceled by request"
   });
   return true;
 };
 
-const ingestRepo = async ({ repoUrl, ingestJobId }) => {
+const ingestRepo = async ({ repoUrl, ingestJobId, projectId, tenantId }) => {
   const parsed = parseGitHubRepo(repoUrl);
   if (!parsed) {
     throw new Error("Invalid repo URL");
@@ -615,7 +622,11 @@ const ingestRepo = async ({ repoUrl, ingestJobId }) => {
   const tree = await fetchRepoTree(parsed.owner, parsed.repo, defaultBranch);
   const treeItems = Array.isArray(tree.tree) ? tree.tree : [];
 
-  await purgeExistingSources(parsed.owner, parsed.repo);
+  await purgeExistingSources({
+    projectId,
+    owner: parsed.owner,
+    repo: parsed.repo
+  });
 
   const selected = [];
   let totalBytes = 0;
@@ -682,6 +693,7 @@ const ingestRepo = async ({ repoUrl, ingestJobId }) => {
     const embeddings = await embedChunks(chunksList);
 
     const objectKey = buildObjectKey(
+      tenantId,
       parsed.owner,
       parsed.repo,
       defaultBranch,
@@ -695,6 +707,7 @@ const ingestRepo = async ({ repoUrl, ingestJobId }) => {
     const [sourceRow] = await db
       .insert(sources)
       .values({
+        projectId: projectId || null,
         repoOwner: parsed.owner,
         repoName: parsed.repo,
         refType: "branch",
@@ -752,7 +765,7 @@ const ingestWorker = new Worker(
       return;
     }
 
-    const { ingestJobId, repo } = job.data || {};
+    const { ingestJobId, repo, projectId, tenantId } = job.data || {};
     if (ingestJobId) {
       if (await cancelIfRequested(ingestJobId)) {
         return { canceled: true };
@@ -765,14 +778,19 @@ const ingestWorker = new Worker(
     }
 
     try {
-      const result = await ingestRepo({ repoUrl: repo, ingestJobId });
+      const result = await ingestRepo({
+        repoUrl: repo,
+        ingestJobId,
+        projectId,
+        tenantId
+      });
 
       if (ingestJobId) {
         if (result?.canceled) {
           await updateJob(ingestJobId, {
             status: "canceled",
             finishedAt: new Date(),
-            lastMessage: "Canceled by admin"
+            lastMessage: "Canceled by request"
           });
           return { canceled: true };
         }
