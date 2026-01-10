@@ -139,6 +139,7 @@ projects:
     name: andrewmcdan/a-mcd-homepage
     repo: https://github.com/andrewmcdan/a-mcd-homepage
     description: ""
+    category: Web
     tags: []
     featured: false
     docs:
@@ -148,6 +149,7 @@ projects:
     repo: https://github.com/andrewmcdan/AI_Assisted_Projects
     description: This repo catalogues my projects in which I used AI to generate
       much of the code.
+    category: AI
     tags: []
     featured: false
     docs:
@@ -158,6 +160,7 @@ projects:
     description: Vibe coded, LLM powered document interview system for retrieving
       information from large amount of unstructured data found in vast libraries
       of PDF's, docx's, and txt files.
+    category: AI
     tags:
       - ai
       - llm
@@ -169,6 +172,7 @@ projects:
     name: andrewmcdan/A-nodejs-project-for-random-JS-experiments
     repo: https://github.com/andrewmcdan/A-nodejs-project-for-random-JS-experiments
     description: Random Javascript, HTML, and CSS experiments and projects.
+    category: Web
     tags:
       - css
       - experimental
