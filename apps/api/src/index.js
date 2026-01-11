@@ -897,15 +897,17 @@ const fetchTenantLimits = async (tenantId) => {
     return rows[0] || { repoLimit: null, tokenLimit: null };
 };
 
-const requireActiveSubscription = async (tenantId, reply) => {
+const requireActiveSubscription = async (tenantId, reply, options = {}) => {
     if (!billingEnabled) {
         return true;
     }
     const billing = await fetchTenantBilling(tenantId);
     if (!billing || !isBillingActive(billing.subscriptionStatus)) {
-        reply
-            .code(402)
-            .send({ error: "Active subscription required." });
+        const message =
+            typeof options.message === "string" && options.message.trim()
+                ? options.message.trim()
+                : "Active subscription required.";
+        reply.code(402).send({ error: message });
         return false;
     }
     return true;
@@ -4536,15 +4538,13 @@ app.post("/chat", async (_request, reply) => {
         return;
     }
 
-    const isPublicChat = Boolean(context.owner);
-    if (!isPublicChat) {
-        const hasAccess = await requireActiveSubscription(
-            context.tenantId,
-            reply
-        );
-        if (!hasAccess) {
-            return;
-        }
+    const publicSubscriptionMessage =
+        "Chat is unavailable because this showcase owner does not have an active subscription.";
+    const hasAccess = await requireActiveSubscription(context.tenantId, reply, {
+        message: context.isOwner ? undefined : publicSubscriptionMessage,
+    });
+    if (!hasAccess) {
+        return;
     }
 
     const limits = await fetchTenantLimits(context.tenantId);
