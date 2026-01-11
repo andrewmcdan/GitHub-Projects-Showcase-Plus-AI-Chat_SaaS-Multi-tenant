@@ -162,6 +162,9 @@ const openaiApiKey = process.env.OPENAI_API_KEY;
 const embeddingModel =
     process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
 const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o";
+const chatModelSupportsTemperature = !String(chatModel)
+    .toLowerCase()
+    .startsWith("gpt-5");
 const chatTemperature = Number.parseFloat(
     process.env.CHAT_TEMPERATURE || "0.2"
 );
@@ -4540,22 +4543,25 @@ app.post("/chat", async (_request, reply) => {
 
                 let assistantContent = "";
                 let usageTokens = null;
+                const streamOptions = {
+                    model: chatModel,
+                    max_tokens: Number.isFinite(chatMaxTokens)
+                        ? chatMaxTokens
+                        : 800,
+                    stream: true,
+                    stream_options: { include_usage: true },
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: userPrompt },
+                    ],
+                };
+                if (chatModelSupportsTemperature) {
+                    streamOptions.temperature = Number.isFinite(chatTemperature)
+                        ? chatTemperature
+                        : 0.2;
+                }
                 const stream = await openai.chat.completions.create(
-                    {
-                        model: chatModel,
-                        temperature: Number.isFinite(chatTemperature)
-                            ? chatTemperature
-                            : 0.2,
-                        max_tokens: Number.isFinite(chatMaxTokens)
-                            ? chatMaxTokens
-                            : 800,
-                        stream: true,
-                        stream_options: { include_usage: true },
-                        messages: [
-                            { role: "system", content: systemPrompt },
-                            { role: "user", content: userPrompt },
-                        ],
-                    },
+                    streamOptions,
                     {
                         signal: abortController.signal,
                     }
@@ -4681,17 +4687,22 @@ app.post("/chat", async (_request, reply) => {
             "\n\n"
         )}`;
 
-        const completion = await openai.chat.completions.create({
+        const completionOptions = {
             model: chatModel,
-            temperature: Number.isFinite(chatTemperature)
-                ? chatTemperature
-                : 0.2,
             max_tokens: Number.isFinite(chatMaxTokens) ? chatMaxTokens : 800,
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt },
             ],
-        });
+        };
+        if (chatModelSupportsTemperature) {
+            completionOptions.temperature = Number.isFinite(chatTemperature)
+                ? chatTemperature
+                : 0.2;
+        }
+        const completion = await openai.chat.completions.create(
+            completionOptions
+        );
 
         const answer = completion.choices?.[0]?.message?.content?.trim() || "";
         const usageTokens = completion.usage?.total_tokens;
