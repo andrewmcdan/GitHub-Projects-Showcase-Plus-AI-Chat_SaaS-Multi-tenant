@@ -1518,9 +1518,23 @@ export default function Home() {
                 >
                   <div className="chat-bubble">
                     {msg.role === "assistant" ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.content}
-                      </ReactMarkdown>
+                      msg.content ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      ) : isStreaming &&
+                        index === chatMessages.length - 1 ? (
+                        <span
+                          className="typing-indicator"
+                          role="status"
+                          aria-live="polite"
+                          aria-label="Assistant is typing"
+                        >
+                          <span className="typing-dot" />
+                          <span className="typing-dot" />
+                          <span className="typing-dot" />
+                        </span>
+                      ) : null
                     ) : (
                       msg.content
                     )}
