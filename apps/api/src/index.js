@@ -118,6 +118,19 @@ const stripePriceStarter = process.env.STRIPE_PRICE_STARTER;
 const stripePricePro = process.env.STRIPE_PRICE_PRO;
 const stripePriceUnlimited = process.env.STRIPE_PRICE_UNLIMITED;
 const stripePriceTokens = process.env.STRIPE_PRICE_TOKENS;
+const stripeTokenMeterEventName = (
+    process.env.STRIPE_TOKEN_METER_EVENT_NAME || ""
+).trim();
+const stripeTokenMeterId = (process.env.STRIPE_TOKEN_METER_ID || "").trim();
+const stripeTokenMeterCustomerKey = (
+    process.env.STRIPE_TOKEN_METER_CUSTOMER_KEY || "stripe_customer_id"
+).trim();
+const stripeTokenMeterValueKey = (
+    process.env.STRIPE_TOKEN_METER_VALUE_KEY || "value"
+).trim();
+const tokenMeterConfigured = Boolean(
+    stripeTokenMeterEventName || stripeTokenMeterId
+);
 const unlimitedTokenLimitRaw = Number.parseInt(
     process.env.STRIPE_UNLIMITED_TOKEN_LIMIT || "1000000000",
     10
@@ -963,6 +976,33 @@ const recordUsageEvent = async ({ tenantId, sessionId, tokens, eventType }) => {
     return null;
 };
 
+let cachedTokenMeterEventName = stripeTokenMeterEventName;
+let tokenMeterResolved =
+    Boolean(stripeTokenMeterEventName) || !stripeTokenMeterId;
+
+const resolveTokenMeterEventName = async () => {
+    if (!tokenMeterConfigured) {
+        return "";
+    }
+    if (tokenMeterResolved) {
+        return cachedTokenMeterEventName;
+    }
+    tokenMeterResolved = true;
+    if (!stripe || !stripeTokenMeterId) {
+        return cachedTokenMeterEventName;
+    }
+    try {
+        const meter = await stripe.billing.meters.retrieve(stripeTokenMeterId);
+        cachedTokenMeterEventName = meter?.event_name || "";
+    } catch (err) {
+        app.log.warn(
+            { err: err.message || err },
+            "Failed to load Stripe meter"
+        );
+    }
+    return cachedTokenMeterEventName;
+};
+
 const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
     if (!stripe || !tenantId || !usageEventId) {
         return;
@@ -972,7 +1012,7 @@ const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
     }
     try {
         const billing = await fetchTenantBilling(tenantId);
-        if (!billing || !billing.plan || !billing.stripeTokenItemId) {
+        if (!billing || !billing.plan) {
             return;
         }
         const limits = getPlanLimits(billing.plan);
@@ -984,6 +1024,32 @@ const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
         }
         const quantity = Math.max(Math.round(tokens), 0);
         if (quantity <= 0) {
+            return;
+        }
+        if (tokenMeterConfigured) {
+            const eventName = await resolveTokenMeterEventName();
+            if (!eventName) {
+                app.log.warn(
+                    { meterId: stripeTokenMeterId },
+                    "Stripe meter event name is not configured"
+                );
+                return;
+            }
+            if (!billing.stripeCustomerId) {
+                return;
+            }
+            await stripe.billing.meterEvents.create({
+                event_name: eventName,
+                payload: {
+                    [stripeTokenMeterCustomerKey]: billing.stripeCustomerId,
+                    [stripeTokenMeterValueKey]: String(quantity),
+                },
+                identifier: `usage-${usageEventId}`,
+                timestamp: Math.floor(Date.now() / 1000),
+            });
+            return;
+        }
+        if (!billing.stripeTokenItemId) {
             return;
         }
         await stripe.subscriptionItems.createUsageRecord(

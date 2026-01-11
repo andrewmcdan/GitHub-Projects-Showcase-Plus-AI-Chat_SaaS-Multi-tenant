@@ -1476,10 +1476,6 @@ export default function Home() {
               ) : null}
             </div>
           </div>
-          <p className="lede">
-            A curated showcase with an AI assistant that answers using GitHub as
-            the source of truth.
-          </p>
           {owner?.bio ? <p className="hero-bio">{owner.bio}</p> : null}
           {shareUrl ? (
             <div className="hero-share">
@@ -1488,15 +1484,6 @@ export default function Home() {
               </span>
               <a href={shareUrl}>{shareUrl}</a>
             </div>
-          ) : null}
-          {ownerVisibility ? (
-            <span
-              className={`visibility-pill${
-                owner?.isPublic === false ? " is-private" : " is-public"
-              }`}
-            >
-              {ownerVisibility}
-            </span>
           ) : null}
         </header>
 
