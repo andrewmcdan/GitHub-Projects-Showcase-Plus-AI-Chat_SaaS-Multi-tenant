@@ -57,10 +57,10 @@ services:
     environment:
       HOST: 0.0.0.0
       API_PORT: 4011
-      POSTGRES_HOST: postgres
-      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}
-      REDIS_URL: redis://redis:6379
-      MINIO_ENDPOINT: minio
+      POSTGRES_HOST: postgres-showcase-saas
+      DATABASE_URL: postgres-showcase-saas://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres-showcase-saas:5432/${POSTGRES_DB:-app}
+      REDIS_URL: redis-showcase-saas://redis-showcase-saas:6379
+      MINIO_ENDPOINT: minio-showcase-saas
       MINIO_PORT: 9000
     ports:
       - "4011:4011"
@@ -82,10 +82,10 @@ services:
     env_file:
       - ../../.env
     environment:
-      POSTGRES_HOST: postgres
-      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}
-      REDIS_URL: redis://redis:6379
-      MINIO_ENDPOINT: minio
+      POSTGRES_HOST: postgres-showcase-saas
+      DATABASE_URL: postgres-showcase-saas://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres-showcase-saas:5432/${POSTGRES_DB:-app}
+      REDIS_URL: redis-showcase-saas://redis-showcase-saas:6379
+      MINIO_ENDPOINT: minio-showcase-saas
       MINIO_PORT: 9000
     volumes:
       - ../../secrets:/app/secrets:ro

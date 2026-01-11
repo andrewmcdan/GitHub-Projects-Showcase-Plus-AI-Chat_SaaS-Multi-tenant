@@ -7,6 +7,7 @@ import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import OpenAI from "openai";
+import Stripe from "stripe";
 import {
     JOB_TYPES,
     QUEUE_NAMES,
@@ -35,6 +36,23 @@ const corsOrigin = process.env.CORS_ORIGIN
     : true;
 
 app.register(cors, { origin: corsOrigin, credentials: true });
+
+app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (request, body, done) => {
+        request.rawBody = body;
+        if (!body) {
+            done(null, {});
+            return;
+        }
+        try {
+            done(null, JSON.parse(body));
+        } catch (err) {
+            done(err);
+        }
+    }
+);
 
 const resolveCorsOrigin = (request) => {
     const originHeader = request.headers.origin;
@@ -93,6 +111,35 @@ const cookieSecure =
     process.env.COOKIE_SECURE === "true" ||
     process.env.NODE_ENV === "production";
 const cookieDomain = process.env.COOKIE_DOMAIN || "";
+
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const stripePriceStarter = process.env.STRIPE_PRICE_STARTER;
+const stripePricePro = process.env.STRIPE_PRICE_PRO;
+const stripePriceUnlimited = process.env.STRIPE_PRICE_UNLIMITED;
+const stripePriceTokens = process.env.STRIPE_PRICE_TOKENS;
+const unlimitedTokenLimitRaw = Number.parseInt(
+    process.env.STRIPE_UNLIMITED_TOKEN_LIMIT || "1000000000",
+    10
+);
+const unlimitedTokenLimit =
+    Number.isFinite(unlimitedTokenLimitRaw) && unlimitedTokenLimitRaw > 0
+        ? unlimitedTokenLimitRaw
+        : 1000000000;
+const stripeCheckoutSuccessUrl =
+    process.env.STRIPE_CHECKOUT_SUCCESS_URL ||
+    (webBaseUrl ? `${webBaseUrl}/account?checkout=success` : "");
+const stripeCheckoutCancelUrl =
+    process.env.STRIPE_CHECKOUT_CANCEL_URL ||
+    (webBaseUrl ? `${webBaseUrl}/account?checkout=cancel` : "");
+const stripePortalReturnUrl =
+    process.env.STRIPE_PORTAL_RETURN_URL ||
+    (webBaseUrl ? `${webBaseUrl}/account` : "");
+const stripe =
+    stripeSecretKey && stripeSecretKey.trim()
+        ? new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" })
+        : null;
+const billingEnabled = Boolean(stripe);
 
 const ingestQueue = new Queue(QUEUE_NAMES.ingest, {
     connection: getRedisConnectionOptions(),
@@ -528,6 +575,108 @@ const normalizeBioInput = (value) => {
         : trimmed;
 };
 
+const PLAN_DEFINITIONS = {
+    starter: {
+        label: "Starter",
+        priceId: stripePriceStarter,
+        repoLimit: 10,
+        tokenLimit: null,
+        tokenUsage: true,
+    },
+    pro: {
+        label: "Pro",
+        priceId: stripePricePro,
+        repoLimit: 50,
+        tokenLimit: null,
+        tokenUsage: true,
+    },
+    unlimited: {
+        label: "Unlimited",
+        priceId: stripePriceUnlimited,
+        repoLimit: null,
+        tokenLimit: null,
+        tokenUsage: true,
+        includedTokens: unlimitedTokenLimit,
+    },
+};
+
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set([
+    "active",
+    "trialing",
+    "past_due",
+]);
+
+const normalizePlanInput = (value) => {
+    if (!value || typeof value !== "string") {
+        return "";
+    }
+    const normalized = value.trim().toLowerCase();
+    return PLAN_DEFINITIONS[normalized] ? normalized : "";
+};
+
+const resolvePlanFromPriceId = (priceId) => {
+    if (!priceId) {
+        return "";
+    }
+    const entries = Object.entries(PLAN_DEFINITIONS);
+    for (const [planKey, plan] of entries) {
+        if (plan.priceId && plan.priceId === priceId) {
+            return planKey;
+        }
+    }
+    return "";
+};
+
+const resolvePlanFromSubscriptionItems = (items) => {
+    const list = Array.isArray(items) ? items : [];
+    for (const item of list) {
+        const priceId = item?.price?.id;
+        const plan = resolvePlanFromPriceId(priceId);
+        if (plan) {
+            return plan;
+        }
+    }
+    return "";
+};
+
+const resolveTokenItemId = (items) => {
+    if (!stripePriceTokens) {
+        return "";
+    }
+    const list = Array.isArray(items) ? items : [];
+    for (const item of list) {
+        if (item?.price?.id === stripePriceTokens) {
+            return item.id || "";
+        }
+    }
+    return "";
+};
+
+const isBillingActive = (status) => {
+    if (!status) {
+        return false;
+    }
+    return ACTIVE_SUBSCRIPTION_STATUSES.has(String(status));
+};
+
+const getPlanLimits = (planKey) => {
+    const plan = PLAN_DEFINITIONS[planKey];
+    if (!plan) {
+        return {
+            repoLimit: null,
+            tokenLimit: null,
+            tokenUsage: false,
+            includedTokens: null,
+        };
+    }
+    return {
+        repoLimit: plan.repoLimit ?? null,
+        tokenLimit: plan.tokenLimit ?? null,
+        tokenUsage: Boolean(plan.tokenUsage),
+        includedTokens: plan.includedTokens ?? null,
+    };
+};
+
 const extractRows = (result) => {
     if (Array.isArray(result)) {
         return result;
@@ -559,6 +708,19 @@ const tenantProfileSelect = {
     userName: users.name,
     githubUsername: users.githubUsername,
     avatarUrl: users.avatarUrl,
+};
+
+const tenantBillingSelect = {
+    tenantId: tenants.id,
+    plan: tenants.plan,
+    subscriptionStatus: tenants.subscriptionStatus,
+    stripeCustomerId: tenants.stripeCustomerId,
+    stripeSubscriptionId: tenants.stripeSubscriptionId,
+    stripeTokenItemId: tenants.stripeTokenItemId,
+    repoLimit: tenants.repoLimit,
+    tokenLimit: tenants.tokenLimit,
+    currentPeriodEnd: tenants.currentPeriodEnd,
+    billingEmail: tenants.billingEmail,
 };
 
 const buildOwnerPayload = (profile) => {
@@ -593,6 +755,49 @@ const fetchTenantProfile = async (tenantId) => {
         .where(eq(tenants.id, tenantId))
         .limit(1);
     return rows[0] || null;
+};
+
+const fetchTenantBilling = async (tenantId) => {
+    if (!tenantId) {
+        return null;
+    }
+    const rows = await db
+        .select(tenantBillingSelect)
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+    return rows[0] || null;
+};
+
+const fetchTenantByStripeCustomerId = async (customerId) => {
+    if (!customerId) {
+        return null;
+    }
+    const rows = await db
+        .select(tenantBillingSelect)
+        .from(tenants)
+        .where(eq(tenants.stripeCustomerId, customerId))
+        .limit(1);
+    return rows[0] || null;
+};
+
+const fetchTenantByStripeSubscriptionId = async (subscriptionId) => {
+    if (!subscriptionId) {
+        return null;
+    }
+    const rows = await db
+        .select(tenantBillingSelect)
+        .from(tenants)
+        .where(eq(tenants.stripeSubscriptionId, subscriptionId))
+        .limit(1);
+    return rows[0] || null;
+};
+
+const updateTenantBilling = async (tenantId, updates) => {
+    if (!tenantId || !updates || Object.keys(updates).length === 0) {
+        return;
+    }
+    await db.update(tenants).set(updates).where(eq(tenants.id, tenantId));
 };
 
 const fetchTenantByHandle = async (handle) => {
@@ -675,6 +880,20 @@ const fetchTenantLimits = async (tenantId) => {
     return rows[0] || { repoLimit: null, tokenLimit: null };
 };
 
+const requireActiveSubscription = async (tenantId, reply) => {
+    if (!billingEnabled) {
+        return true;
+    }
+    const billing = await fetchTenantBilling(tenantId);
+    if (!billing || !isBillingActive(billing.subscriptionStatus)) {
+        reply
+            .code(402)
+            .send({ error: "Active subscription required." });
+        return false;
+    }
+    return true;
+};
+
 const fetchRepoCount = async (tenantId) => {
     if (!tenantId) {
         return 0;
@@ -717,24 +936,69 @@ const fetchTokenUsageForPeriod = async (tenantId, period) => {
 
 const recordUsageEvent = async ({ tenantId, sessionId, tokens, eventType }) => {
     if (!tenantId || !eventType) {
-        return;
+        return null;
     }
     const safeTokens =
         typeof tokens === "number" && Number.isFinite(tokens) ? tokens : null;
     if (safeTokens === null) {
-        return;
+        return null;
     }
     try {
-        await db.insert(usageEvents).values({
-            tenantId,
-            sessionId: sessionId || null,
-            eventType,
-            tokens: safeTokens,
-        });
+        const [row] = await db
+            .insert(usageEvents)
+            .values({
+                tenantId,
+                sessionId: sessionId || null,
+                eventType,
+                tokens: safeTokens,
+            })
+            .returning({ id: usageEvents.id });
+        return row?.id || null;
     } catch (err) {
         app.log.warn(
             { err: err.message || err },
             "Failed to record usage event"
+        );
+    }
+    return null;
+};
+
+const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
+    if (!stripe || !tenantId || !usageEventId) {
+        return;
+    }
+    if (typeof tokens !== "number" || !Number.isFinite(tokens)) {
+        return;
+    }
+    try {
+        const billing = await fetchTenantBilling(tenantId);
+        if (!billing || !billing.plan || !billing.stripeTokenItemId) {
+            return;
+        }
+        const limits = getPlanLimits(billing.plan);
+        if (!limits.tokenUsage) {
+            return;
+        }
+        if (!isBillingActive(billing.subscriptionStatus)) {
+            return;
+        }
+        const quantity = Math.max(Math.round(tokens), 0);
+        if (quantity <= 0) {
+            return;
+        }
+        await stripe.subscriptionItems.createUsageRecord(
+            billing.stripeTokenItemId,
+            {
+                quantity,
+                timestamp: Math.floor(Date.now() / 1000),
+                action: "increment",
+            },
+            { idempotencyKey: `usage-${usageEventId}` }
+        );
+    } catch (err) {
+        app.log.warn(
+            { err: err.message || err },
+            "Failed to report usage to Stripe"
         );
     }
 };
@@ -3261,6 +3525,10 @@ app.post("/account/limits", async (request, reply) => {
     if (!session) {
         return;
     }
+    if (billingEnabled) {
+        reply.code(403).send({ error: "Limits are managed by billing." });
+        return;
+    }
     const body = request.body || {};
 
     const parseLimit = (value, label) => {
@@ -3313,6 +3581,268 @@ app.post("/account/limits", async (request, reply) => {
     }
 });
 
+app.get("/account/billing", async (request, reply) => {
+    const session = await requireAuth(request, reply);
+    if (!session) {
+        return;
+    }
+    try {
+        const billing = await fetchTenantBilling(session.tenantId);
+        const planKey = billing?.plan || "";
+        const plan = PLAN_DEFINITIONS[planKey] || null;
+        reply.send({
+            billing: {
+                plan: planKey,
+                planLabel: plan?.label || "",
+                status: billing?.subscriptionStatus || "inactive",
+                currentPeriodEnd: billing?.currentPeriodEnd
+                    ? new Date(billing.currentPeriodEnd).toISOString()
+                    : null,
+                repoLimit: billing?.repoLimit ?? null,
+                tokenLimit: billing?.tokenLimit ?? null,
+                tokenUsage: plan?.tokenUsage || false,
+                hasCustomer: Boolean(billing?.stripeCustomerId),
+                billingEnabled,
+                unlimitedTokenLimit,
+            },
+        });
+    } catch (err) {
+        reply
+            .code(500)
+            .send({ error: err.message || "Failed to load billing details" });
+    }
+});
+
+app.post("/billing/checkout", async (request, reply) => {
+    const session = await requireAuth(request, reply);
+    if (!session) {
+        return;
+    }
+    if (!billingEnabled) {
+        reply.code(500).send({ error: "Stripe is not configured." });
+        return;
+    }
+    if (!stripeCheckoutSuccessUrl || !stripeCheckoutCancelUrl) {
+        reply.code(500).send({ error: "Checkout URLs are not configured." });
+        return;
+    }
+    const planKey = normalizePlanInput(request.body?.plan);
+    const plan = PLAN_DEFINITIONS[planKey];
+    if (!plan || !plan.priceId) {
+        reply.code(400).send({ error: "Invalid plan selection." });
+        return;
+    }
+    if (plan.tokenUsage && !stripePriceTokens) {
+        reply
+            .code(500)
+            .send({ error: "Token usage price is not configured." });
+        return;
+    }
+
+    try {
+        const billing = await fetchTenantBilling(session.tenantId);
+        const customerEmail = session.user?.email || undefined;
+        let stripeCustomerId = billing?.stripeCustomerId || "";
+        if (!stripeCustomerId) {
+            const customer = await stripe.customers.create({
+                email: customerEmail,
+                name: session.user?.name || customerEmail || undefined,
+                metadata: {
+                    tenantId: String(session.tenantId),
+                },
+            });
+            stripeCustomerId = customer.id;
+            await updateTenantBilling(session.tenantId, {
+                stripeCustomerId,
+                billingEmail: customerEmail || null,
+            });
+        }
+
+        const lineItems = [{ price: plan.priceId, quantity: 1 }];
+        if (plan.tokenUsage && stripePriceTokens) {
+            lineItems.push({ price: stripePriceTokens });
+        }
+
+        const checkoutSession = await stripe.checkout.sessions.create({
+            mode: "subscription",
+            customer: stripeCustomerId,
+            line_items: lineItems,
+            success_url: stripeCheckoutSuccessUrl,
+            cancel_url: stripeCheckoutCancelUrl,
+            allow_promotion_codes: true,
+            client_reference_id: String(session.tenantId),
+            metadata: {
+                tenantId: String(session.tenantId),
+                plan: planKey,
+            },
+            subscription_data: {
+                metadata: {
+                    tenantId: String(session.tenantId),
+                    plan: planKey,
+                },
+            },
+        });
+
+        reply.send({ url: checkoutSession.url });
+    } catch (err) {
+        reply.code(500).send({
+            error: err.message || "Failed to create checkout session",
+        });
+    }
+});
+
+app.post("/billing/portal", async (request, reply) => {
+    const session = await requireAuth(request, reply);
+    if (!session) {
+        return;
+    }
+    if (!billingEnabled) {
+        reply.code(500).send({ error: "Stripe is not configured." });
+        return;
+    }
+    if (!stripePortalReturnUrl) {
+        reply.code(500).send({ error: "Portal return URL is not configured." });
+        return;
+    }
+    try {
+        const billing = await fetchTenantBilling(session.tenantId);
+        if (!billing?.stripeCustomerId) {
+            reply.code(400).send({ error: "No Stripe customer on file." });
+            return;
+        }
+        const portal = await stripe.billingPortal.sessions.create({
+            customer: billing.stripeCustomerId,
+            return_url: stripePortalReturnUrl,
+        });
+        reply.send({ url: portal.url });
+    } catch (err) {
+        reply.code(500).send({
+            error: err.message || "Failed to open billing portal",
+        });
+    }
+});
+
+app.post("/webhooks/stripe", async (request, reply) => {
+    if (!billingEnabled || !stripeWebhookSecret) {
+        reply.code(500).send({ error: "Stripe webhook not configured." });
+        return;
+    }
+    const signature = request.headers["stripe-signature"];
+    if (!signature || typeof signature !== "string") {
+        reply.code(400).send({ error: "Missing Stripe signature." });
+        return;
+    }
+    let event;
+    try {
+        event = stripe.webhooks.constructEvent(
+            request.rawBody || "",
+            signature,
+            stripeWebhookSecret
+        );
+    } catch (err) {
+        reply.code(400).send({ error: `Webhook error: ${err.message}` });
+        return;
+    }
+
+    const handleSubscriptionUpdate = async (subscription) => {
+        const items = subscription?.items?.data || [];
+        const planKey =
+            subscription?.metadata?.plan ||
+            resolvePlanFromSubscriptionItems(items);
+        const resolvedPlan = planKey || "";
+        const tokenItemId = resolveTokenItemId(items);
+        const currentPeriodEnd = subscription?.current_period_end
+            ? new Date(subscription.current_period_end * 1000)
+            : null;
+        const tenantId =
+            subscription?.metadata?.tenantId ||
+            subscription?.metadata?.tenant ||
+            null;
+        let tenant =
+            tenantId && Number.isFinite(Number(tenantId))
+                ? await fetchTenantBilling(Number(tenantId))
+                : null;
+        if (!tenant) {
+            tenant = await fetchTenantByStripeSubscriptionId(subscription.id);
+        }
+        if (!tenant) {
+            tenant = await fetchTenantByStripeCustomerId(subscription.customer);
+        }
+        if (!tenant) {
+            app.log.warn(
+                { subscriptionId: subscription.id },
+                "Stripe webhook: tenant not found"
+            );
+            return;
+        }
+
+        const planToApply = resolvedPlan || tenant.plan || "";
+        const limits = planToApply
+            ? getPlanLimits(planToApply)
+            : {
+                  repoLimit: tenant.repoLimit ?? null,
+                  tokenLimit: tenant.tokenLimit ?? null,
+              };
+
+        await updateTenantBilling(tenant.tenantId, {
+            plan: planToApply || null,
+            subscriptionStatus: subscription.status || null,
+            stripeCustomerId: subscription.customer || tenant.stripeCustomerId,
+            stripeSubscriptionId: subscription.id || tenant.stripeSubscriptionId,
+            stripeTokenItemId: tokenItemId || null,
+            currentPeriodEnd,
+            repoLimit: limits.repoLimit ?? null,
+            tokenLimit: limits.tokenLimit ?? null,
+        });
+    };
+
+    const handleCheckoutCompleted = async (session) => {
+        const tenantId =
+            session?.metadata?.tenantId ||
+            session?.client_reference_id ||
+            null;
+        if (!tenantId) {
+            return;
+        }
+        const numericTenantId = Number(tenantId);
+        if (!Number.isFinite(numericTenantId)) {
+            return;
+        }
+        await updateTenantBilling(numericTenantId, {
+            stripeCustomerId: session.customer || null,
+            stripeSubscriptionId: session.subscription || null,
+            billingEmail: session.customer_details?.email || null,
+        });
+    };
+
+    try {
+        switch (event.type) {
+            case "checkout.session.completed":
+                await handleCheckoutCompleted(event.data.object);
+                break;
+            case "customer.subscription.created":
+            case "customer.subscription.updated":
+            case "customer.subscription.deleted":
+                await handleSubscriptionUpdate(event.data.object);
+                break;
+            case "invoice.payment_failed":
+            case "invoice.paid":
+                break;
+            default:
+                break;
+        }
+    } catch (err) {
+        app.log.error(
+            { err: err.message || err, eventType: event.type },
+            "Stripe webhook failed"
+        );
+        reply.code(500).send({ error: "Webhook handler failed." });
+        return;
+    }
+
+    reply.send({ received: true });
+});
+
 app.get("/projects", async (request, reply) => {
     const handle = normalizeHandle(request.query?.handle);
     const context = await resolveTenantContext(request, { allowPublic: true });
@@ -3345,6 +3875,10 @@ app.get("/projects", async (request, reply) => {
 app.post("/projects", async (request, reply) => {
     const session = await requireAuth(request, reply);
     if (!session) {
+        return;
+    }
+    const hasAccess = await requireActiveSubscription(session.tenantId, reply);
+    if (!hasAccess) {
         return;
     }
     const { project, error } = await normalizeProjectInput(request.body);
@@ -3668,6 +4202,11 @@ app.post("/chat", async (_request, reply) => {
         return;
     }
 
+    const hasAccess = await requireActiveSubscription(context.tenantId, reply);
+    if (!hasAccess) {
+        return;
+    }
+
     const limits = await fetchTenantLimits(context.tenantId);
     if (Number.isFinite(limits.tokenLimit)) {
         const period = getUsagePeriod();
@@ -3977,11 +4516,16 @@ app.post("/chat", async (_request, reply) => {
                         citations,
                     });
                 }
-                await recordUsageEvent({
+                const usageEventId = await recordUsageEvent({
                     tenantId: context.tenantId,
                     sessionId,
                     tokens: usageTokens,
                     eventType: "chat_completion",
+                });
+                void reportUsageToStripe({
+                    tenantId: context.tenantId,
+                    usageEventId,
+                    tokens: usageTokens,
                 });
             } catch (err) {
                 sendEvent("error", { error: err.message || "Chat failed" });
@@ -4100,11 +4644,16 @@ app.post("/chat", async (_request, reply) => {
                 citations,
             });
         }
-        await recordUsageEvent({
+        const usageEventId = await recordUsageEvent({
             tenantId: context.tenantId,
             sessionId,
             tokens: usageTokens,
             eventType: "chat_completion",
+        });
+        void reportUsageToStripe({
+            tenantId: context.tenantId,
+            usageEventId,
+            tokens: usageTokens,
         });
     } catch (err) {
         reply.code(500).send({ error: err.message || "Chat failed" });

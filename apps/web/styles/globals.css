@@ -1170,6 +1170,105 @@ a:hover {
   padding-top: 12px;
 }
 
+.account-limit-list {
+  display: grid;
+  gap: 10px;
+}
+
+.account-limit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.account-limit-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.account-limit-value {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.billing-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.billing-value {
+  margin: 4px 0 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.billing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.billing-usage {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.billing-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.billing-plan {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.billing-plan.is-active {
+  border-color: rgba(30, 86, 118, 0.4);
+  box-shadow: 0 12px 24px rgba(30, 86, 118, 0.18);
+}
+
+.billing-plan-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.billing-plan-price {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.billing-plan-meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 @media (max-width: 1200px) {
   .layout {
     grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);

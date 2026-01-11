@@ -18,6 +18,13 @@ export const tenants = pgTable("tenants", {
   isPublic: boolean("is_public").default(true).notNull(),
   repoLimit: integer("repo_limit"),
   tokenLimit: integer("token_limit"),
+  plan: text("plan"),
+  subscriptionStatus: text("subscription_status"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  stripeTokenItemId: text("stripe_token_item_id"),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  billingEmail: text("billing_email"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull()
