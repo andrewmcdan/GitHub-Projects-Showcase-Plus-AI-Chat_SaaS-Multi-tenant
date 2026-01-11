@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4011";
 const CHAT_HISTORY_LIMIT = 8;
 const VISITOR_ID_KEY = "gh-projects-visitor-id";
 const ABOUT_SEEN_KEY = "gh-projects-about-seen";

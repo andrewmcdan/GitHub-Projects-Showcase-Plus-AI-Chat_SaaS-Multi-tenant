@@ -1,7 +1,7 @@
 version: "3.9"
 
 services:
-  postgres:
+  postgres-showcase-saas:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
@@ -9,9 +9,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - pg_data-showcase-saas:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
@@ -19,34 +19,34 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
+  redis-showcase-saas:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "16379:6379"
     volumes:
-      - redis_data:/data
+      - redis_data-showcase-saas:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  minio:
+  minio-showcase-saas:
     image: minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "19000:9000"
+      - "19001:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minio123}
     volumes:
-      - minio_data:/data
+      - minio_data-showcase-saas:/data
 
-  api:
+  api-showcase-saas:
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
@@ -56,25 +56,25 @@ services:
       - ../../.env
     environment:
       HOST: 0.0.0.0
-      API_PORT: 3001
+      API_PORT: 4011
       POSTGRES_HOST: postgres
       DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
     ports:
-      - "3001:3001"
+      - "4011:4011"
     volumes:
       - ../../secrets:/app/secrets:ro
     depends_on:
-      postgres:
+      postgres-showcase-saas:
         condition: service_healthy
-      redis:
+      redis-showcase-saas:
         condition: service_healthy
-      minio:
+      minio-showcase-saas:
         condition: service_started
 
-  worker:
+  worker-showcase-saas:
     build:
       context: ../..
       dockerfile: apps/worker/Dockerfile
@@ -90,14 +90,14 @@ services:
     volumes:
       - ../../secrets:/app/secrets:ro
     depends_on:
-      postgres:
+      postgres-showcase-saas:
         condition: service_healthy
-      redis:
+      redis-showcase-saas:
         condition: service_healthy
-      minio:
+      minio-showcase-saas:
         condition: service_started
 
-  web:
+  web-showcase-saas:
     build:
       context: ../..
       dockerfile: apps/web/Dockerfile
@@ -105,11 +105,11 @@ services:
     env_file:
       - ../../.env
     ports:
-      - "3000:3000"
+      - "4010:3000"
     depends_on:
-      - api
+      - api-showcase-saas
 
 volumes:
-  pg_data:
-  redis_data:
-  minio_data:
+  pg_data-showcase-saas:
+  redis_data-showcase-saas:
+  minio_data-showcase-saas:

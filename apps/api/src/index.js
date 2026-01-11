@@ -4182,7 +4182,7 @@ if (ingestInitialCheckMs) {
     }, 8000);
 }
 
-const port = Number(process.env.API_PORT || process.env.PORT || 3001);
+const port = Number(process.env.API_PORT || process.env.PORT || 4011);
 const host = process.env.HOST || "0.0.0.0";
 
 const start = async () => {
