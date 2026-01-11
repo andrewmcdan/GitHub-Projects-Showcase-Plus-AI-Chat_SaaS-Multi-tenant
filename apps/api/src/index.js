@@ -276,6 +276,7 @@ const activeIngestStatuses = new Set([
     "cancel_requested",
 ]);
 let ingestScheduleInFlight = false;
+let stripeUsageSyncInFlight = false;
 
 const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 
@@ -1193,6 +1194,125 @@ const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
             { err: err.message || err },
             "Failed to report usage to Stripe"
         );
+    }
+};
+
+const formatUsageSnapshotKey = (value = new Date()) => {
+    const year = value.getUTCFullYear();
+    const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(value.getUTCDate()).padStart(2, "0");
+    const hour = String(value.getUTCHours()).padStart(2, "0");
+    return `${year}${month}${day}${hour}`;
+};
+
+const fetchUsageTotalsForPeriod = async (period) => {
+    if (!period?.start || !period?.end) {
+        return new Map();
+    }
+    const rows = extractRows(
+        await db.execute(sql`
+            select tenant_id as "tenantId",
+                   coalesce(sum(tokens), 0)::int as "count"
+            from ${usageEvents}
+            where created_at >= ${period.start}
+              and created_at < ${period.end}
+            group by tenant_id
+        `)
+    );
+    const totals = new Map();
+    for (const row of rows) {
+        const tenantId = Number(row.tenantId);
+        const count = Number.parseInt(row.count, 10);
+        if (!Number.isFinite(tenantId)) {
+            continue;
+        }
+        totals.set(tenantId, Number.isFinite(count) ? count : 0);
+    }
+    return totals;
+};
+
+const syncStripeUsageSnapshots = async (label) => {
+    if (!stripe || !tokenMeterConfigured) {
+        return;
+    }
+    if (stripeUsageSyncInFlight) {
+        return;
+    }
+    stripeUsageSyncInFlight = true;
+    try {
+        const eventName = await resolveTokenMeterEventName();
+        if (!eventName) {
+            app.log.warn(
+                { meterId: stripeTokenMeterId },
+                "Stripe usage sync: meter event name is not configured"
+            );
+            return;
+        }
+        const period = getUsagePeriod();
+        const usageTotals = await fetchUsageTotalsForPeriod(period);
+        const tenantRows = await db
+            .select({
+                tenantId: tenants.id,
+                stripeCustomerId: tenants.stripeCustomerId,
+                subscriptionStatus: tenants.subscriptionStatus,
+            })
+            .from(tenants)
+            .where(sql`${tenants.stripeCustomerId} is not null`);
+
+        const snapshotKey = formatUsageSnapshotKey(new Date());
+        const timestamp = Math.floor(Date.now() / 1000);
+        let updated = 0;
+
+        for (const tenant of tenantRows) {
+            const stripeCustomerId = normalizeStripeCustomerId(
+                tenant.stripeCustomerId
+            );
+            if (!stripeCustomerId) {
+                continue;
+            }
+            if (
+                tenant.subscriptionStatus &&
+                !isBillingActive(tenant.subscriptionStatus)
+            ) {
+                continue;
+            }
+            const tokens = usageTotals.get(tenant.tenantId) || 0;
+            const quantity = Math.max(Math.round(tokens), 0);
+            const identifier = `usage-snapshot-${tenant.tenantId}-${snapshotKey}`;
+            try {
+                await stripe.billing.meterEvents.create({
+                    event_name: eventName,
+                    payload: {
+                        [stripeTokenMeterCustomerKey]: stripeCustomerId,
+                        [stripeTokenMeterValueKey]: String(quantity),
+                    },
+                    identifier,
+                    timestamp,
+                });
+                updated += 1;
+            } catch (err) {
+                app.log.warn(
+                    {
+                        err: err.message || err,
+                        tenantId: tenant.tenantId,
+                    },
+                    "Stripe usage sync: failed to post meter event"
+                );
+            }
+        }
+        if (updated > 0) {
+            app.log.info(
+                { label, updated },
+                "Stripe usage sync: posted meter events"
+            );
+        }
+    } catch (err) {
+        app.log.warn(
+            { err: err.message || err },
+            "Stripe usage sync failed"
+        );
+    } finally {
+        stripeUsageSyncInFlight = false;
     }
 };
 
@@ -4948,6 +5068,16 @@ if (ingestInitialCheckMs) {
             };
         });
     }, 8000);
+}
+
+const stripeUsageSyncIntervalMs = 60 * 60 * 1000;
+if (billingEnabled && tokenMeterConfigured) {
+    setInterval(() => {
+        syncStripeUsageSnapshots("hourly");
+    }, stripeUsageSyncIntervalMs);
+    setTimeout(() => {
+        syncStripeUsageSnapshots("startup");
+    }, 5000);
 }
 
 const port = Number(process.env.API_PORT || process.env.PORT || 4011);
