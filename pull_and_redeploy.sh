@@ -6,6 +6,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
+cd GitHub-Projects-Showcase-Plus-AI-Chat_SaaS-Multi-tenant
 git pull
 cd infra/compose
 sudo docker compose up --build -d
