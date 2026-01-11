@@ -370,7 +370,8 @@ a:hover {
 }
 
 .chat-bubble li {
-  padding: 3px;
+  margin: 0;
+  padding: 0;
 }
 
 .typing-indicator {
@@ -420,8 +421,25 @@ a:hover {
 
 .chat-bubble ul,
 .chat-bubble ol {
-  margin: 0 0 12px 18px;
+  margin: 0 0 8px 18px;
   padding: 0;
+}
+
+.chat-bubble li + li {
+  margin-top: 4px;
+}
+
+.chat-bubble li > p {
+  margin: 0;
+}
+
+.chat-bubble ul ul,
+.chat-bubble ul ol,
+.chat-bubble ol ul,
+.chat-bubble ol ol {
+  margin-top: 4px;
+  margin-bottom: 0;
+  margin-left: 16px;
 }
 
 .chat-bubble h1,
