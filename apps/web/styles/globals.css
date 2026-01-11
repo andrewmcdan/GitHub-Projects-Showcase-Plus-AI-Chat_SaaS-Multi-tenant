@@ -369,6 +369,10 @@ a:hover {
   overflow-x: hidden;
 }
 
+.chat-bubble li {
+  padding: 3px;
+}
+
 .typing-indicator {
   display: inline-flex;
   align-items: center;
