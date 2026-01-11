@@ -545,7 +545,7 @@ export default function AccountPage() {
     ? Math.max(0, tokensUsed - includedTokens)
     : 0;
   const usageCost = billing?.tokenUsage
-    ? (billableTokens / TOKEN_UNIT) * TOKEN_RATE
+    ? Math.ceil((billableTokens / TOKEN_UNIT) * TOKEN_RATE)
     : 0;
   const usageCostLabel = billing?.tokenUsage
     ? formatCurrency(usageCost)

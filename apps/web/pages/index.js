@@ -1739,18 +1739,21 @@ export default function Home() {
             </div>
             <div className="about-body">
               <p>
-                My name is Andrew, and I built this GitHub projects showcase so
-                recruiters (and anyone who wants to run it themselves) can
-                explore my work in a conversational way. Ask questions about a
-                project to get the what and how without digging through dozens
-                of source files, and jump to the GitHub links when you want the
-                raw code.
+                This GitHub projects showcase is designed for recruiters,
+                peers, and collaborators who want to understand someone's work
+                quickly. Ask questions about a project to get the goals,
+                architecture, and decisions without digging through dozens of
+                files, and jump to the GitHub links when you want the raw code.
               </p>
               <p>
-                The stack is Next.js + Fastify + Postgres/pgvector + Redis +
-                MinIO, and the app is proxied behind Nginx and deployed with
-                Docker on AWS Lightsail. This site was built with AI (OpenAI's
-                Codex in VS Code).
+                The platform runs on Next.js + Fastify + Postgres/pgvector +
+                Redis + MinIO, proxied behind Nginx and deployed with Docker on
+                AWS Lightsail. This site was built with AI (OpenAI's Codex in VS
+                Code).
+              </p>
+              <p>
+                Read the <Link href="/legal">terms of service and legal</Link>{" "}
+                details for usage, AI, and open source policies.
               </p>
             </div>
           </div>

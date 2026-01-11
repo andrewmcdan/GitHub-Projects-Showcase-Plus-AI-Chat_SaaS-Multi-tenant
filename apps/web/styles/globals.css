@@ -1101,6 +1101,65 @@ a:hover {
   background: rgba(242, 227, 221, 0.7);
 }
 
+.legal-page {
+  height: 100vh;
+  padding: 32px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow: auto;
+  animation: fadeUp 0.7s ease both;
+}
+
+.legal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.legal-intro {
+  display: grid;
+  gap: 8px;
+  max-width: 720px;
+}
+
+.legal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.legal-card {
+  display: grid;
+  gap: 18px;
+}
+
+.legal-section {
+  display: grid;
+  gap: 8px;
+}
+
+.legal-section + .legal-section {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.legal-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  list-style: disc;
+}
+
+.legal-list li {
+  line-height: 1.5;
+}
+
 .account-project-list {
   display: grid;
   gap: 12px;
@@ -1321,6 +1380,13 @@ a:hover {
   }
 
   .account-page {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+    padding: 24px;
+  }
+
+  .legal-page {
     height: auto;
     min-height: 100vh;
     overflow: visible;
