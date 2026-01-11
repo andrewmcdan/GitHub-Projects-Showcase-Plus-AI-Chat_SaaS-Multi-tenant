@@ -1152,7 +1152,10 @@ const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
         ) {
             return;
         }
-        const quantity = Math.max(Math.round(tokens), 0);
+        const usageTotal = tokenMeterConfigured
+            ? await fetchTokenUsageForPeriod(tenantId, getUsagePeriod())
+            : tokens;
+        const quantity = Math.max(Math.round(usageTotal), 0);
         if (quantity <= 0) {
             return;
         }
