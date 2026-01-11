@@ -4271,9 +4271,15 @@ app.post("/chat", async (_request, reply) => {
         return;
     }
 
-    const hasAccess = await requireActiveSubscription(context.tenantId, reply);
-    if (!hasAccess) {
-        return;
+    const isPublicChat = Boolean(context.owner);
+    if (!isPublicChat) {
+        const hasAccess = await requireActiveSubscription(
+            context.tenantId,
+            reply
+        );
+        if (!hasAccess) {
+            return;
+        }
     }
 
     const limits = await fetchTenantLimits(context.tenantId);
