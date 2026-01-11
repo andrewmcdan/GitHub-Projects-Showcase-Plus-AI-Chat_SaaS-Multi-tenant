@@ -1115,8 +1115,10 @@ const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
         if (!billing) {
             return;
         }
+        let planKey = billing.plan || "";
+        let planConfigured = Boolean(planKey && PLAN_DEFINITIONS[planKey]);
         const needsRefresh =
-            !billing.plan ||
+            !planConfigured ||
             !billing.subscriptionStatus ||
             (tokenMeterConfigured
                 ? !billing.stripeCustomerId
@@ -1126,15 +1128,25 @@ const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
             (billing.stripeSubscriptionId || billing.stripeCustomerId)
         ) {
             billing = await refreshTenantBillingFromStripe(billing);
+            planKey = billing?.plan || "";
+            planConfigured = Boolean(planKey && PLAN_DEFINITIONS[planKey]);
         }
-        if (!billing || !billing.plan) {
+        if (!billing) {
             return;
         }
-        const limits = getPlanLimits(billing.plan);
-        if (!limits.tokenUsage) {
+        const meterReady = tokenMeterConfigured
+            ? Boolean(billing.stripeCustomerId)
+            : false;
+        const itemReady = Boolean(billing.stripeTokenItemId);
+        const limits = planConfigured ? getPlanLimits(planKey) : null;
+        const tokenUsageEnabled = limits?.tokenUsage || (!limits && (meterReady || itemReady));
+        if (!tokenUsageEnabled) {
             return;
         }
-        if (!isBillingActive(billing.subscriptionStatus)) {
+        if (
+            billing.subscriptionStatus &&
+            !isBillingActive(billing.subscriptionStatus)
+        ) {
             return;
         }
         const quantity = Math.max(Math.round(tokens), 0);
