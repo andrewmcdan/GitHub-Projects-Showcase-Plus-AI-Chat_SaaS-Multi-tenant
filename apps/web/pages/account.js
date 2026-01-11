@@ -881,7 +881,10 @@ export default function AccountPage() {
                 ) : null}
                 <div className="billing-plans">
                   {BILLING_PLANS.map((plan) => {
-                    const isCurrent = plan.id === billingPlan;
+                    const isActivePlan =
+                      billingActive && plan.id === billingPlan;
+                    const isPreviousPlan =
+                      !billingActive && plan.id === billingPlan;
                     const tokenLabel =
                       plan.id === "unlimited"
                         ? unlimitedTokenLabel
@@ -890,13 +893,15 @@ export default function AccountPage() {
                       <div
                         key={plan.id}
                         className={`billing-plan${
-                          isCurrent ? " is-active" : ""
+                          isActivePlan ? " is-active" : ""
                         }`}
                       >
                         <div className="billing-plan-header">
                           <h3>{plan.name}</h3>
-                          {isCurrent ? (
+                          {isActivePlan ? (
                             <span className="muted">Current</span>
+                          ) : isPreviousPlan ? (
+                            <span className="muted">Last</span>
                           ) : null}
                         </div>
                         <p className="billing-plan-price">{plan.price}</p>
@@ -906,12 +911,14 @@ export default function AccountPage() {
                           type="button"
                           className="primary-button"
                           onClick={() => handleCheckout(plan.id)}
-                          disabled={isCurrent || billingAction === plan.id}
+                          disabled={isActivePlan || billingAction === plan.id}
                         >
-                          {isCurrent
+                          {isActivePlan
                             ? "Selected"
                             : billingAction === plan.id
                             ? "Starting..."
+                            : isPreviousPlan
+                            ? "Restart plan"
                             : "Choose plan"}
                         </button>
                       </div>
