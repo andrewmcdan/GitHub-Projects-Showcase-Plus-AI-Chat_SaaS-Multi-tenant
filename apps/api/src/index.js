@@ -162,9 +162,9 @@ const openaiApiKey = process.env.OPENAI_API_KEY;
 const embeddingModel =
     process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
 const chatModel = process.env.OPENAI_CHAT_MODEL || "gpt-4o";
-const chatModelSupportsTemperature = !String(chatModel)
-    .toLowerCase()
-    .startsWith("gpt-5");
+const normalizedChatModel = String(chatModel).toLowerCase();
+const chatModelIsGpt5 = normalizedChatModel.startsWith("gpt-5");
+const chatModelSupportsTemperature = !chatModelIsGpt5;
 const chatTemperature = Number.parseFloat(
     process.env.CHAT_TEMPERATURE || "0.2"
 );
@@ -4549,11 +4549,11 @@ app.post("/chat", async (_request, reply) => {
 
                 let assistantContent = "";
                 let usageTokens = null;
+                const resolvedMaxTokens = Number.isFinite(chatMaxTokens)
+                    ? chatMaxTokens
+                    : 800;
                 const streamOptions = {
                     model: chatModel,
-                    max_tokens: Number.isFinite(chatMaxTokens)
-                        ? chatMaxTokens
-                        : 800,
                     stream: true,
                     stream_options: { include_usage: true },
                     messages: [
@@ -4561,6 +4561,11 @@ app.post("/chat", async (_request, reply) => {
                         { role: "user", content: userPrompt },
                     ],
                 };
+                if (chatModelIsGpt5) {
+                    streamOptions.max_completion_tokens = resolvedMaxTokens;
+                } else {
+                    streamOptions.max_tokens = resolvedMaxTokens;
+                }
                 if (chatModelSupportsTemperature) {
                     streamOptions.temperature = Number.isFinite(chatTemperature)
                         ? chatTemperature
@@ -4693,14 +4698,21 @@ app.post("/chat", async (_request, reply) => {
             "\n\n"
         )}`;
 
+        const resolvedMaxTokens = Number.isFinite(chatMaxTokens)
+            ? chatMaxTokens
+            : 800;
         const completionOptions = {
             model: chatModel,
-            max_tokens: Number.isFinite(chatMaxTokens) ? chatMaxTokens : 800,
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt },
             ],
         };
+        if (chatModelIsGpt5) {
+            completionOptions.max_completion_tokens = resolvedMaxTokens;
+        } else {
+            completionOptions.max_tokens = resolvedMaxTokens;
+        }
         if (chatModelSupportsTemperature) {
             completionOptions.temperature = Number.isFinite(chatTemperature)
                 ? chatTemperature
