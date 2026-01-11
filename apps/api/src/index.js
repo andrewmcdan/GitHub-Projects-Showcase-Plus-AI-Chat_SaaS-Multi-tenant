@@ -4128,6 +4128,24 @@ app.post("/webhooks/stripe", async (request, reply) => {
         });
     };
 
+    const handleInvoicePaid = async (invoice) => {
+        const subscriptionId = invoice?.subscription || null;
+        if (!subscriptionId) {
+            return;
+        }
+        try {
+            const subscription = await stripe.subscriptions.retrieve(
+                subscriptionId
+            );
+            await handleSubscriptionUpdate(subscription);
+        } catch (err) {
+            app.log.warn(
+                { err: err.message || err, subscriptionId },
+                "Stripe webhook: failed to refresh subscription after invoice"
+            );
+        }
+    };
+
     try {
         switch (event.type) {
             case "checkout.session.completed":
@@ -4139,7 +4157,10 @@ app.post("/webhooks/stripe", async (request, reply) => {
                 await handleSubscriptionUpdate(event.data.object);
                 break;
             case "invoice.payment_failed":
+                break;
             case "invoice.paid":
+            case "invoice.payment_succeeded":
+                await handleInvoicePaid(event.data.object);
                 break;
             default:
                 break;
