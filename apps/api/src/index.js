@@ -1006,6 +1006,103 @@ const resolveTokenMeterEventName = async () => {
     return cachedTokenMeterEventName;
 };
 
+const normalizeStripeCustomerId = (value) => {
+    if (!value) {
+        return "";
+    }
+    if (typeof value === "string") {
+        return value;
+    }
+    if (typeof value === "object" && typeof value.id === "string") {
+        return value.id;
+    }
+    return "";
+};
+
+const pickStripeSubscription = (list) => {
+    const subscriptions = Array.isArray(list) ? list : [];
+    if (subscriptions.length === 0) {
+        return null;
+    }
+    const active = subscriptions.find((subscription) =>
+        isBillingActive(subscription?.status)
+    );
+    return active || subscriptions[0];
+};
+
+const refreshTenantBillingFromStripe = async (billing) => {
+    if (!stripe || !billing) {
+        return billing;
+    }
+    let subscription = null;
+    if (billing.stripeSubscriptionId) {
+        try {
+            subscription = await stripe.subscriptions.retrieve(
+                billing.stripeSubscriptionId
+            );
+        } catch (err) {
+            app.log.warn(
+                {
+                    err: err.message || err,
+                    subscriptionId: billing.stripeSubscriptionId,
+                },
+                "Failed to refresh Stripe subscription"
+            );
+        }
+    }
+    if (!subscription && billing.stripeCustomerId) {
+        try {
+            const response = await stripe.subscriptions.list({
+                customer: billing.stripeCustomerId,
+                status: "all",
+                limit: 5,
+            });
+            subscription = pickStripeSubscription(response?.data || []);
+        } catch (err) {
+            app.log.warn(
+                {
+                    err: err.message || err,
+                    customerId: billing.stripeCustomerId,
+                },
+                "Failed to list Stripe subscriptions"
+            );
+        }
+    }
+    if (!subscription) {
+        return billing;
+    }
+    const items = subscription?.items?.data || [];
+    const planKey =
+        subscription?.metadata?.plan ||
+        resolvePlanFromSubscriptionItems(items);
+    const tokenItemId = resolveTokenItemId(items);
+    const currentPeriodEnd = subscription?.current_period_end
+        ? new Date(subscription.current_period_end * 1000)
+        : null;
+    const customerId = normalizeStripeCustomerId(subscription.customer);
+    const planToApply = planKey || billing.plan || "";
+    const limits = planToApply
+        ? getPlanLimits(planToApply)
+        : {
+              repoLimit: billing.repoLimit ?? null,
+              tokenLimit: billing.tokenLimit ?? null,
+          };
+
+    const updates = {
+        plan: planToApply || null,
+        subscriptionStatus: subscription.status || null,
+        stripeCustomerId: customerId || billing.stripeCustomerId || null,
+        stripeSubscriptionId: subscription.id || billing.stripeSubscriptionId,
+        stripeTokenItemId: tokenItemId || billing.stripeTokenItemId || null,
+        currentPeriodEnd,
+        repoLimit: limits.repoLimit ?? null,
+        tokenLimit: limits.tokenLimit ?? null,
+    };
+
+    await updateTenantBilling(billing.tenantId, updates);
+    return { ...billing, ...updates };
+};
+
 const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
     if (!stripe || !tenantId || !usageEventId) {
         return;
@@ -1014,7 +1111,22 @@ const reportUsageToStripe = async ({ tenantId, usageEventId, tokens }) => {
         return;
     }
     try {
-        const billing = await fetchTenantBilling(tenantId);
+        let billing = await fetchTenantBilling(tenantId);
+        if (!billing) {
+            return;
+        }
+        const needsRefresh =
+            !billing.plan ||
+            !billing.subscriptionStatus ||
+            (tokenMeterConfigured
+                ? !billing.stripeCustomerId
+                : !billing.stripeTokenItemId);
+        if (
+            needsRefresh &&
+            (billing.stripeSubscriptionId || billing.stripeCustomerId)
+        ) {
+            billing = await refreshTenantBillingFromStripe(billing);
+        }
         if (!billing || !billing.plan) {
             return;
         }
