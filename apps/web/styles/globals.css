@@ -490,8 +490,8 @@ a:hover {
 
 .citation-list {
   display: grid;
-  gap: 6px;
-  font-size: 12px;
+  gap: 4px;
+  font-size: 11px;
   color: var(--muted);
 }
 
@@ -502,14 +502,14 @@ a:hover {
 .citation-disclosure {
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 6px 10px;
+  padding: 5px 8px;
   background: #fdfbf6;
   max-width: 100%;
 }
 
 .citation-disclosure summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--muted);
 }
