@@ -1120,11 +1120,14 @@ a:hover {
   min-height: 0;
   overflow: auto;
   padding-bottom: 12px;
+  align-items: start;
+  align-content: start;
 }
 
 .account-card {
   display: grid;
   gap: 14px;
+  align-self: start;
 }
 
 .account-card-header {
