@@ -85,7 +85,9 @@ export const chunks = pgTable("chunks", {
 
 export const ingestJobs = pgTable("ingest_jobs", {
   id: serial("id").primaryKey(),
-  projectId: integer("project_id").references(() => projects.id),
+  projectId: integer("project_id").references(() => projects.id, {
+    onDelete: "cascade"
+  }),
   projectRepo: text("project_repo").notNull(),
   projectName: text("project_name"),
   totalFiles: integer("total_files"),

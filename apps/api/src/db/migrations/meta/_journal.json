@@ -50,6 +50,13 @@
       "when": 1768084000000,
       "tag": "0006_billing_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1768179000000,
+      "tag": "0007_ingest_jobs_cascade",
+      "breakpoints": true
     }
   ]
 }
