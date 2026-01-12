@@ -407,7 +407,7 @@ a:hover {
 }
 
 .chat-bubble p {
-  margin: 0 0 3px;
+  margin: 0 0 12px;
 }
 
 .chat-bubble p:last-child {
@@ -416,7 +416,7 @@ a:hover {
 
 .chat-bubble ul,
 .chat-bubble ol {
-  margin: 0 0 0x 18px;
+  margin: 0 0 12px 18px;
   padding: 0;
 }
 
@@ -429,7 +429,7 @@ a:hover {
 
 .chat-bubble pre {
   margin: 0 0 12px;
-  padding: 0px;
+  padding: 12px;
   border-radius: 10px;
   background: #1f1a16;
   color: #fdfbf6;
