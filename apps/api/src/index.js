@@ -592,6 +592,16 @@ const normalizeBioInput = (value) => {
         : trimmed;
 };
 
+const normalizeCategoryInput = (value) => {
+    if (value === null || value === undefined || value === "") {
+        return "";
+    }
+    if (typeof value !== "string") {
+        return null;
+    }
+    return value.trim();
+};
+
 const PLAN_DEFINITIONS = {
     starter: {
         label: "Starter",
@@ -4280,6 +4290,51 @@ app.post("/projects", async (request, reply) => {
         ingestJob,
         ingestError,
     });
+});
+
+app.post("/projects/:id/category", async (request, reply) => {
+    const session = await requireAuth(request, reply);
+    if (!session) {
+        return;
+    }
+    const projectId = normalizeSessionId(request.params?.id);
+    if (!projectId) {
+        reply.code(400).send({ error: "project id is required" });
+        return;
+    }
+    const rawCategory =
+        request.body?.category ??
+        request.body?.value ??
+        request.body?.name ??
+        "";
+    const category = normalizeCategoryInput(rawCategory);
+    if (category === null) {
+        reply.code(400).send({ error: "category must be a string" });
+        return;
+    }
+
+    const [updated] = await db
+        .update(projects)
+        .set({ category: category ? category : null })
+        .where(
+            and(eq(projects.tenantId, session.tenantId), eq(projects.id, projectId))
+        )
+        .returning({
+            id: projects.id,
+            name: projects.name,
+            repoUrl: projects.repoUrl,
+            description: projects.description,
+            tags: projects.tags,
+            featured: projects.featured,
+            category: projects.category,
+        });
+
+    if (!updated) {
+        reply.code(404).send({ error: "Project not found" });
+        return;
+    }
+
+    reply.send({ project: formatProjectRow(updated) });
 });
 
 app.post("/telemetry", async (request, reply) => {

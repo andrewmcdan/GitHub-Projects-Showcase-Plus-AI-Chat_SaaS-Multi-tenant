@@ -150,6 +150,26 @@ export default function AccountPage() {
   const [billingError, setBillingError] = useState("");
   const [billingMessage, setBillingMessage] = useState("");
   const [billingAction, setBillingAction] = useState("");
+  const [categoryProject, setCategoryProject] = useState(null);
+  const [categoryValue, setCategoryValue] = useState("");
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryError, setCategoryError] = useState("");
+
+  const categoryOptions = useMemo(() => {
+    const entries = new Map();
+    projects.forEach((project) => {
+      const category =
+        typeof project?.category === "string" ? project.category.trim() : "";
+      if (!category) {
+        return;
+      }
+      const key = category.toLowerCase();
+      if (!entries.has(key)) {
+        entries.set(key, category);
+      }
+    });
+    return Array.from(entries.values()).sort((a, b) => a.localeCompare(b));
+  }, [projects]);
 
   const loadAuthUser = async () => {
     setAuthLoading(true);
@@ -313,6 +333,9 @@ export default function AccountPage() {
       setBilling(null);
       setBillingError("");
       setBillingMessage("");
+      setCategoryProject(null);
+      setCategoryValue("");
+      setCategoryError("");
       setProfileForm({
         handle: "",
         bio: "",
@@ -395,6 +418,56 @@ export default function AccountPage() {
       await loadUsage();
     } catch (err) {
       setError(err.message || "Failed to remove repo.");
+    }
+  };
+
+  const openCategoryModal = (project) => {
+    if (!project) {
+      return;
+    }
+    setCategoryProject(project);
+    setCategoryValue(project.category || "");
+    setCategoryError("");
+  };
+
+  const closeCategoryModal = () => {
+    setCategoryProject(null);
+    setCategoryValue("");
+    setCategoryError("");
+  };
+
+  const handleCategorySave = async (event) => {
+    event.preventDefault();
+    const projectId = Number(categoryProject?.id);
+    if (!Number.isFinite(projectId)) {
+      setCategoryError("Repo id missing.");
+      return;
+    }
+    setCategorySaving(true);
+    setCategoryError("");
+    try {
+      const response = await fetch(
+        buildApiUrl(`/projects/${encodeURIComponent(projectId)}/category`),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          credentials: "include",
+          body: JSON.stringify({ category: categoryValue })
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to update category.");
+      }
+      setMessage("Category updated.");
+      await loadProjects();
+      closeCategoryModal();
+    } catch (err) {
+      setCategoryError(err.message || "Failed to update category.");
+    } finally {
+      setCategorySaving(false);
     }
   };
 
@@ -537,6 +610,13 @@ export default function AccountPage() {
         ? "Metered tokens"
         : "Unlimited tokens"
       : `${formatCount(billing.tokenLimit)} token cap`;
+  const categoryValueTrimmed = categoryValue.trim();
+  const categoryValueKey = categoryValueTrimmed.toLowerCase();
+  const categoryProjectLabel = categoryProject
+    ? categoryProject.name ||
+      formatRepoLabel(categoryProject) ||
+      "this repo"
+    : "";
   const includedTokens =
     billingPlan === "unlimited" && Number.isFinite(Number(unlimitedTokenCap))
       ? Number(unlimitedTokenCap)
@@ -736,6 +816,11 @@ export default function AccountPage() {
                           {project.description}
                         </p>
                       ) : null}
+                      {project.category ? (
+                        <div className="project-meta">
+                          Category: {project.category}
+                        </div>
+                      ) : null}
                       {project.repo ? (
                         <a
                           className="account-project-link"
@@ -747,13 +832,22 @@ export default function AccountPage() {
                         </a>
                       ) : null}
                     </div>
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => handleDeleteProject(project)}
-                    >
-                      Remove
-                    </button>
+                    <div className="account-project-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => openCategoryModal(project)}
+                      >
+                        Category
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => handleDeleteProject(project)}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -934,6 +1028,101 @@ export default function AccountPage() {
           </div>
         </section>
       )}
+
+      {categoryProject ? (
+        <div
+          className="category-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="category-title"
+        >
+          <div className="category-card">
+            <div className="category-header">
+              <h2 id="category-title">Set category</h2>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={closeCategoryModal}
+              >
+                Close
+              </button>
+            </div>
+            <div className="category-body">
+              <p className="muted">
+                Choose a category for {categoryProjectLabel}.
+              </p>
+              <div className="category-options" role="listbox">
+                <button
+                  type="button"
+                  className={`category-option${
+                    categoryValueTrimmed ? "" : " is-selected"
+                  }`}
+                  onClick={() => setCategoryValue("")}
+                >
+                  No category
+                </button>
+                {categoryOptions.map((category) => {
+                  const isSelected =
+                    categoryValueTrimmed &&
+                    category.toLowerCase() === categoryValueKey;
+                  return (
+                    <button
+                      key={category}
+                      type="button"
+                      className={`category-option${
+                        isSelected ? " is-selected" : ""
+                      }`}
+                      onClick={() => setCategoryValue(category)}
+                    >
+                      {category}
+                    </button>
+                  );
+                })}
+                {categoryOptions.length === 0 ? (
+                  <span className="muted">No categories yet.</span>
+                ) : null}
+              </div>
+              <form className="form" onSubmit={handleCategorySave}>
+                <label className="field">
+                  <span>Category name</span>
+                  <input
+                    type="text"
+                    placeholder="e.g., Infrastructure"
+                    value={categoryValue}
+                    onChange={(event) => setCategoryValue(event.target.value)}
+                  />
+                </label>
+                {categoryError ? (
+                  <p className="status error">{categoryError}</p>
+                ) : null}
+                <div className="category-actions">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={closeCategoryModal}
+                    disabled={categorySaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={categorySaving}
+                  >
+                    {categorySaving ? "Saving..." : "Save category"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="category-backdrop"
+            aria-label="Close category"
+            onClick={closeCategoryModal}
+          />
+        </div>
+      ) : null}
     </main>
   );
 }
