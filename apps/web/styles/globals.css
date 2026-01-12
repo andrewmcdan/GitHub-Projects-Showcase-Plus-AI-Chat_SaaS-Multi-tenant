@@ -1390,6 +1390,12 @@ a:hover {
   justify-items: end;
 }
 
+.account-project-footer {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 4px;
+}
+
 .account-project-title {
   font-weight: 600;
 }

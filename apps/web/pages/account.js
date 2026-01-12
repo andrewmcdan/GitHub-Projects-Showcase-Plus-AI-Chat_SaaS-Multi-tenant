@@ -593,6 +593,10 @@ export default function AccountPage() {
     setShowInstallPrompt(false);
   };
 
+  const openInstallPrompt = () => {
+    setShowInstallPrompt(true);
+  };
+
   const ownerName =
     profile?.name || owner?.name || authUser?.name || authUser?.githubUsername;
   const profileHandle =
@@ -876,6 +880,15 @@ export default function AccountPage() {
                   </div>
                 ))
               )}
+            </div>
+            <div className="account-project-footer">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={openInstallPrompt}
+              >
+                Allow Repo Access
+              </button>
             </div>
           </div>
 
