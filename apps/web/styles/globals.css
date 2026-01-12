@@ -369,11 +369,6 @@ a:hover {
   overflow-x: hidden;
 }
 
-.chat-bubble li {
-  margin: 0;
-  padding: 0;
-}
-
 .typing-indicator {
   display: inline-flex;
   align-items: center;
@@ -412,7 +407,7 @@ a:hover {
 }
 
 .chat-bubble p {
-  margin: 0 0 12px;
+  margin: 0 0 3px;
 }
 
 .chat-bubble p:last-child {
@@ -421,25 +416,8 @@ a:hover {
 
 .chat-bubble ul,
 .chat-bubble ol {
-  margin: 0 0 5px 2px;
+  margin: 0 0 0x 18px;
   padding: 0;
-}
-
-.chat-bubble li + li {
-  margin-top: 0px;
-}
-
-.chat-bubble li > p {
-  margin: 0;
-}
-
-.chat-bubble ul ul,
-.chat-bubble ul ol,
-.chat-bubble ol ul,
-.chat-bubble ol ol {
-  margin-top: 0px;
-  margin-bottom: 0;
-  margin-left: 5px;
 }
 
 .chat-bubble h1,
@@ -450,8 +428,8 @@ a:hover {
 }
 
 .chat-bubble pre {
-  margin: 0 0 5px;
-  padding: 5px;
+  margin: 0 0 12px;
+  padding: 0px;
   border-radius: 10px;
   background: #1f1a16;
   color: #fdfbf6;
