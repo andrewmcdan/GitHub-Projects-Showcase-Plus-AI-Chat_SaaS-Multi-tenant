@@ -4409,6 +4409,7 @@ app.delete("/projects/:id", async (request, reply) => {
         await db.delete(chunks).where(inArray(chunks.sourceId, ids));
         await db.delete(sources).where(inArray(sources.id, ids));
     }
+    await db.delete(ingestJobs).where(eq(ingestJobs.projectId, projectId));
     await db
         .delete(projects)
         .where(
