@@ -408,7 +408,7 @@ a:hover {
 
 .chat-bubble p {
   margin: 0 0 12px;
-  padding-top: 5px;
+  padding-top: 15px;
 }
 
 .chat-bubble p:last-child {
