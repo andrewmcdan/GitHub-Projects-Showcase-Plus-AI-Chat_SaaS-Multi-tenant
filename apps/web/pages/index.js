@@ -1766,8 +1766,25 @@ export default function Home() {
                 Code).
               </p>
               <p>
-                Read the <Link href="/legal">terms of service and legal</Link>{" "}
-                details for usage, AI, and open source policies.
+                This is a product of{" "}
+                <a
+                  href="https://a-mcdtechnology.com"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  A-McD Technology LLC
+                </a>
+                .
+              </p>
+              <p>
+                Cookie notice: This site uses cookies and local storage to keep
+                you signed in, remember preferences, and collect anonymous usage
+                metrics.
+              </p>
+              <p>
+                Read the <Link href="/privacy">privacy policy</Link> and{" "}
+                <Link href="/legal">terms of service and legal</Link> details
+                for usage, AI, and open source policies.
               </p>
             </div>
           </div>
