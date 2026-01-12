@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4011";
+const GITHUB_APP_INSTALL_URL =
+  "https://github.com/apps/projects-homepage-with-ai-chat/installations/new";
 
 const normalizeBasePath = (value) => {
   if (!value) {
@@ -124,6 +127,7 @@ const BILLING_PLANS = [
 ];
 
 export default function AccountPage() {
+  const router = useRouter();
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [projects, setProjects] = useState([]);
@@ -154,6 +158,7 @@ export default function AccountPage() {
   const [categoryValue, setCategoryValue] = useState("");
   const [categorySaving, setCategorySaving] = useState(false);
   const [categoryError, setCategoryError] = useState("");
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
 
   const categoryOptions = useMemo(() => {
     const entries = new Map();
@@ -304,6 +309,22 @@ export default function AccountPage() {
       loadBilling();
     }
   }, [authLoading, authUser]);
+
+  useEffect(() => {
+    if (!router.isReady) {
+      return;
+    }
+    if (router.query.checkout === "success") {
+      setShowInstallPrompt(true);
+      const nextQuery = { ...router.query };
+      delete nextQuery.checkout;
+      router.replace(
+        { pathname: router.pathname, query: nextQuery },
+        undefined,
+        { shallow: true }
+      );
+    }
+  }, [router.isReady, router.query.checkout, router.pathname]);
 
   const handleAuthStart = () => {
     if (typeof window === "undefined") {
@@ -566,6 +587,10 @@ export default function AccountPage() {
     } finally {
       setBillingAction("");
     }
+  };
+
+  const closeInstallPrompt = () => {
+    setShowInstallPrompt(false);
   };
 
   const ownerName =
@@ -1120,6 +1145,58 @@ export default function AccountPage() {
             className="category-backdrop"
             aria-label="Close category"
             onClick={closeCategoryModal}
+          />
+        </div>
+      ) : null}
+
+      {showInstallPrompt ? (
+        <div
+          className="install-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="install-title"
+        >
+          <div className="install-card">
+            <div className="install-header">
+              <h2 id="install-title">Install the GitHub App</h2>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={closeInstallPrompt}
+              >
+                Close
+              </button>
+            </div>
+            <div className="install-body">
+              <p className="muted">
+                Next step: install the projects-homepage-with-ai-chat GitHub
+                App so we can access your repos and keep your showcase up to
+                date.
+              </p>
+              <div className="install-actions">
+                <a
+                  className="primary-button"
+                  href={GITHUB_APP_INSTALL_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Install GitHub App
+                </a>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={closeInstallPrompt}
+                >
+                  Later
+                </button>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="install-backdrop"
+            aria-label="Close install prompt"
+            onClick={closeInstallPrompt}
           />
         </div>
       ) : null}

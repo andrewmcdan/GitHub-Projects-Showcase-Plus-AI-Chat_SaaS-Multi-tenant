@@ -785,6 +785,59 @@ a:hover {
   gap: 10px;
 }
 
+.install-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 120;
+}
+
+.install-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(15, 14, 12, 0.5);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.install-card {
+  position: relative;
+  z-index: 1;
+  width: min(520px, 100%);
+  padding: 24px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+}
+
+.install-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.install-body {
+  display: grid;
+  gap: 12px;
+  color: #433b35;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.install-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
 .chat-list {
   display: grid;
   gap: 12px;
