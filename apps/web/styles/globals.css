@@ -1,14 +1,20 @@
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
 
 :root {
-  --ink: #1b1b1b;
-  --muted: #6b5d52;
-  --paper: #f7f4ee;
-  --panel: #fffaf1;
-  --accent: #1e5676;
-  --accent-strong: #0f3b52;
-  --border: #e4ddd2;
-  --shadow: 0 18px 40px rgba(15, 32, 39, 0.08);
+  --ink: #f4f7fb;
+  --ink-soft: #d6e4f6;
+  --muted: #96aac2;
+  --paper: #070b12;
+  --panel: #0f1623;
+  --panel-alt: #121c2e;
+  --panel-strong: #17253a;
+  --accent: #4aa3ff;
+  --accent-strong: #8cc9ff;
+  --border: #1e2b41;
+  --border-strong: #2a3f5c;
+  --shadow: 0 18px 40px rgba(2, 6, 14, 0.7);
+  --success: #35d39f;
+  --danger: #ff6b6b;
 }
 
 * {
@@ -20,9 +26,18 @@ body {
   font-family: "Space Grotesk", sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(circle at 10% 10%, #ffffff 0, #fff7e4 35%, transparent 60%),
-    radial-gradient(circle at 90% 20%, #e8f0f1 0, transparent 55%),
-    linear-gradient(135deg, #f6efe6, #f1f7f4 50%, #f7f4ee);
+    radial-gradient(
+      circle at 12% 12%,
+      rgba(74, 163, 255, 0.2),
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 85% 18%,
+      rgba(10, 22, 40, 0.9),
+      transparent 55%
+    ),
+    linear-gradient(135deg, #05080f, #0b1323 45%, #060a12);
+  background-color: var(--paper);
   min-height: 100vh;
   overflow: hidden;
 }
@@ -121,7 +136,7 @@ a:hover {
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #75685f;
+  color: var(--muted);
 }
 
 .project-group-title {
@@ -129,12 +144,12 @@ a:hover {
 }
 
 .project-group-count {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.7);
-  color: #6b5f56;
+  background: rgba(9, 15, 25, 0.8);
+  color: var(--muted);
 }
 
 .project-group-list {
@@ -143,7 +158,7 @@ a:hover {
 }
 
 .project-item {
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 12px;
@@ -171,7 +186,7 @@ a:hover {
 }
 
 .project-button:focus-visible {
-  outline: 2px solid rgba(30, 86, 118, 0.4);
+  outline: 2px solid rgba(74, 163, 255, 0.45);
   outline-offset: 3px;
   border-radius: 10px;
 }
@@ -185,7 +200,7 @@ a:hover {
   display: grid;
   gap: 8px;
   font-size: 14px;
-  color: #433b35;
+  color: var(--ink-soft);
 }
 
 .add-project {
@@ -201,7 +216,7 @@ a:hover {
   padding: 14px;
   border-radius: 14px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
 }
 
 .main {
@@ -220,7 +235,7 @@ a:hover {
   gap: 12px;
   padding: 28px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(12, 18, 30, 0.9);
   box-shadow: var(--shadow);
   backdrop-filter: blur(8px);
 }
@@ -274,7 +289,7 @@ a:hover {
   max-width: 640px;
   font-size: 18px;
   line-height: 1.6;
-  color: #433b35;
+  color: var(--ink-soft);
 }
 
 .hero-share {
@@ -291,7 +306,7 @@ a:hover {
 .hero-bio {
   margin: 0;
   max-width: 640px;
-  color: #3f3530;
+  color: var(--ink-soft);
 }
 
 .visibility-pill {
@@ -305,19 +320,20 @@ a:hover {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(9, 14, 24, 0.7);
+  color: var(--muted);
 }
 
 .visibility-pill.is-public {
-  color: #1f5b47;
-  border-color: rgba(31, 91, 71, 0.3);
-  background: rgba(217, 238, 231, 0.7);
+  color: #44d9a0;
+  border-color: rgba(68, 217, 160, 0.4);
+  background: rgba(16, 38, 34, 0.8);
 }
 
 .visibility-pill.is-private {
-  color: #6b3a32;
-  border-color: rgba(107, 58, 50, 0.35);
-  background: rgba(242, 227, 221, 0.7);
+  color: #ff9f7a;
+  border-color: rgba(255, 159, 122, 0.4);
+  background: rgba(42, 24, 24, 0.75);
 }
 
 .chat-window {
@@ -327,7 +343,7 @@ a:hover {
   padding: 24px;
   border-radius: 18px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(12, 18, 30, 0.92);
   box-shadow: var(--shadow);
   flex: 1;
   min-height: 0;
@@ -341,10 +357,10 @@ a:hover {
 }
 
 .chat-box {
-  border: 1px dashed #c8b8a7;
+  border: 1px dashed var(--border-strong);
   border-radius: 12px;
   padding: 24px;
-  background: #faf8f4;
+  background: #0c1626;
 }
 
 .chat-stream {
@@ -353,7 +369,7 @@ a:hover {
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #ffffff;
+  background: #0b1524;
   max-height: none;
   min-height: 0;
   overflow-y: auto;
@@ -376,8 +392,8 @@ a:hover {
 .chat-bubble {
   padding: 12px 14px;
   border-radius: 14px;
-  background: #f2ebe0;
-  color: #362f2a;
+  background: #101a2a;
+  color: var(--ink-soft);
   max-width: 100%;
   line-height: 1.45;
   overflow-x: hidden;
@@ -470,8 +486,8 @@ a:hover {
   margin: 0 0 12px;
   padding: 12px;
   border-radius: 10px;
-  background: #1f1a16;
-  color: #fdfbf6;
+  background: #0b111c;
+  color: #e8f2ff;
   max-width: 100%;
   width: 100%;
   overflow-x: auto;
@@ -482,7 +498,7 @@ a:hover {
   font-family: "Space Grotesk", ui-monospace, SFMono-Regular, Menlo, Monaco,
     Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.9em;
-  background: rgba(27, 27, 27, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   padding: 0 4px;
   border-radius: 6px;
 }
@@ -494,8 +510,8 @@ a:hover {
 }
 
 .chat-message.user .chat-bubble {
-  background: #dbe8ef;
-  color: #142b39;
+  background: #1b2d45;
+  color: #e9f2ff;
   white-space: pre-wrap;
 }
 
@@ -518,7 +534,7 @@ a:hover {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 5px 8px;
-  background: #fdfbf6;
+  background: #0f1826;
   max-width: 100%;
 }
 
@@ -547,11 +563,13 @@ a:hover {
   resize: vertical;
   min-height: 90px;
   width: 100%;
+  background: #0b1524;
+  color: var(--ink);
 }
 
 .chat-input textarea:focus {
-  outline: 2px solid rgba(30, 86, 118, 0.3);
-  border-color: rgba(30, 86, 118, 0.6);
+  outline: 2px solid rgba(74, 163, 255, 0.35);
+  border-color: rgba(74, 163, 255, 0.7);
 }
 
 .chat-input-field {
@@ -564,7 +582,7 @@ a:hover {
   left: 0;
   right: 0;
   bottom: calc(100% + 10px);
-  background: #ffffff;
+  background: #0f1826;
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow);
@@ -591,7 +609,7 @@ a:hover {
 
 .slash-menu-item {
   border: 1px solid transparent;
-  background: #f8f5ef;
+  background: #0c1626;
   border-radius: 10px;
   padding: 8px 10px;
   display: flex;
@@ -608,8 +626,8 @@ a:hover {
 
 .slash-menu-item:hover,
 .slash-menu-item.is-active {
-  border-color: rgba(30, 86, 118, 0.35);
-  background: #e9f0f4;
+  border-color: rgba(74, 163, 255, 0.5);
+  background: #16263d;
   color: var(--accent-strong);
 }
 
@@ -656,7 +674,7 @@ a:hover {
 
 .ghost-button:hover {
   color: var(--accent-strong);
-  border-color: rgba(30, 86, 118, 0.4);
+  border-color: rgba(74, 163, 255, 0.5);
 }
 
 .about-button {
@@ -686,7 +704,7 @@ a:hover {
   position: absolute;
   inset: 0;
   border: none;
-  background: rgba(15, 14, 12, 0.55);
+  background: rgba(5, 8, 14, 0.7);
   backdrop-filter: blur(4px);
   cursor: pointer;
 }
@@ -714,7 +732,7 @@ a:hover {
 .about-body {
   display: grid;
   gap: 12px;
-  color: #433b35;
+  color: var(--ink-soft);
   font-size: 15px;
   line-height: 1.6;
 }
@@ -732,7 +750,7 @@ a:hover {
   position: absolute;
   inset: 0;
   border: none;
-  background: rgba(15, 14, 12, 0.5);
+  background: rgba(5, 8, 14, 0.7);
   backdrop-filter: blur(4px);
   cursor: pointer;
 }
@@ -760,7 +778,7 @@ a:hover {
 .category-body {
   display: grid;
   gap: 12px;
-  color: #433b35;
+  color: var(--ink-soft);
   font-size: 14px;
   line-height: 1.5;
 }
@@ -773,7 +791,7 @@ a:hover {
 
 .category-option {
   border: 1px solid var(--border);
-  background: #fff;
+  background: #0f1826;
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 12px;
@@ -783,12 +801,12 @@ a:hover {
 
 .category-option:hover {
   color: var(--accent-strong);
-  border-color: rgba(30, 86, 118, 0.4);
+  border-color: rgba(74, 163, 255, 0.5);
 }
 
 .category-option.is-selected {
-  background: rgba(30, 86, 118, 0.12);
-  border-color: rgba(30, 86, 118, 0.4);
+  background: rgba(74, 163, 255, 0.2);
+  border-color: rgba(74, 163, 255, 0.5);
   color: var(--ink);
   font-weight: 600;
 }
@@ -812,7 +830,7 @@ a:hover {
   position: absolute;
   inset: 0;
   border: none;
-  background: rgba(15, 14, 12, 0.5);
+  background: rgba(5, 8, 14, 0.7);
   backdrop-filter: blur(4px);
   cursor: pointer;
 }
@@ -840,7 +858,7 @@ a:hover {
 .install-body {
   display: grid;
   gap: 12px;
-  color: #433b35;
+  color: var(--ink-soft);
   font-size: 15px;
   line-height: 1.6;
 }
@@ -883,7 +901,7 @@ a:hover {
 
 .ingest-item {
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
   border-radius: 12px;
   padding: 10px;
   display: grid;
@@ -910,25 +928,25 @@ a:hover {
 }
 
 .ingest-status.completed {
-  color: #2f5b3b;
+  color: var(--success);
 }
 
 .ingest-status.failed {
-  color: #a33b2f;
+  color: var(--danger);
 }
 
 .ingest-status.running {
-  color: #1e5676;
+  color: var(--accent);
 }
 
 .ingest-status.canceled,
 .ingest-status.cancel_requested {
-  color: #8a4f2b;
+  color: #f3b36b;
 }
 
 .ingest-detail {
   font-size: 12px;
-  color: #433b35;
+  color: var(--ink-soft);
 }
 
 .ingest-time {
@@ -938,7 +956,7 @@ a:hover {
 
 .chat-session {
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
   border-radius: 14px;
   padding: 10px 12px;
   text-align: left;
@@ -951,18 +969,18 @@ a:hover {
 }
 
 .chat-session:hover {
-  border-color: rgba(30, 86, 118, 0.35);
-  box-shadow: 0 10px 20px rgba(30, 86, 118, 0.12);
+  border-color: rgba(74, 163, 255, 0.45);
+  box-shadow: 0 10px 20px rgba(8, 20, 36, 0.7);
 }
 
 .chat-session:focus-visible {
-  outline: 2px solid rgba(30, 86, 118, 0.4);
+  outline: 2px solid rgba(74, 163, 255, 0.5);
   outline-offset: 3px;
 }
 
 .chat-session.active {
   border-color: var(--accent);
-  box-shadow: 0 12px 22px rgba(30, 86, 118, 0.2);
+  box-shadow: 0 12px 24px rgba(10, 30, 54, 0.75);
 }
 
 .chat-session-title {
@@ -998,7 +1016,7 @@ a:hover {
   padding: 12px 14px;
   font-size: 15px;
   font-family: inherit;
-  background: #fff;
+  background: #0b1524;
   color: var(--ink);
 }
 
@@ -1008,20 +1026,20 @@ a:hover {
   padding: 12px 14px;
   font-size: 15px;
   font-family: inherit;
-  background: #fff;
+  background: #0b1524;
   color: var(--ink);
   resize: vertical;
   min-height: 120px;
 }
 
 .field input:focus {
-  outline: 2px solid rgba(30, 86, 118, 0.3);
-  border-color: rgba(30, 86, 118, 0.6);
+  outline: 2px solid rgba(74, 163, 255, 0.35);
+  border-color: rgba(74, 163, 255, 0.7);
 }
 
 .field textarea:focus {
-  outline: 2px solid rgba(30, 86, 118, 0.3);
-  border-color: rgba(30, 86, 118, 0.6);
+  outline: 2px solid rgba(74, 163, 255, 0.35);
+  border-color: rgba(74, 163, 255, 0.7);
 }
 
 .field-hint {
@@ -1062,16 +1080,16 @@ a:hover {
 
 .primary-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(30, 86, 118, 0.25);
+  box-shadow: 0 10px 20px rgba(10, 30, 54, 0.6);
 }
 
 .status {
   font-size: 14px;
-  color: #2f5b3b;
+  color: var(--success);
 }
 
 .status.error {
-  color: #a33b2f;
+  color: var(--danger);
 }
 
 .muted {
@@ -1085,7 +1103,7 @@ a:hover {
   padding: 6px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: #ffffff;
+  background: #0f1826;
   box-shadow: var(--shadow);
   display: grid;
   gap: 4px;
@@ -1104,11 +1122,11 @@ a:hover {
 }
 
 .context-menu-item:hover {
-  background: rgba(30, 86, 118, 0.08);
+  background: rgba(74, 163, 255, 0.12);
 }
 
 .context-menu-item.danger {
-  color: #a33b2f;
+  color: var(--danger);
 }
 
 .telemetry-page {
@@ -1149,7 +1167,7 @@ a:hover {
 }
 
 .telemetry-card {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 16px;
@@ -1196,7 +1214,7 @@ a:hover {
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #ffffff;
+  background: #0b1524;
 }
 
 .telemetry-table {
@@ -1213,7 +1231,7 @@ a:hover {
 }
 
 .telemetry-table th {
-  background: #f7f1e7;
+  background: #0f1826;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1221,7 +1239,7 @@ a:hover {
 }
 
 .telemetry-table tbody tr:hover {
-  background: #f9f5ec;
+  background: #16243a;
 }
 
 .account-page {
@@ -1333,7 +1351,7 @@ a:hover {
   padding: 16px;
   border-radius: 16px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
   box-shadow: var(--shadow);
 }
 
@@ -1368,13 +1386,13 @@ a:hover {
   padding: 3px 10px;
   font-size: 11px;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(9, 15, 25, 0.8);
   white-space: nowrap;
 }
 
 .directory-bio {
   font-size: 14px;
-  color: #433b35;
+  color: var(--ink-soft);
   margin: 0;
 }
 
@@ -1418,19 +1436,20 @@ a:hover {
   padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(9, 14, 24, 0.7);
+  color: var(--muted);
 }
 
 .account-visibility.is-public {
-  color: #1f5b47;
-  border-color: rgba(31, 91, 71, 0.3);
-  background: rgba(217, 238, 231, 0.7);
+  color: #44d9a0;
+  border-color: rgba(68, 217, 160, 0.4);
+  background: rgba(16, 38, 34, 0.8);
 }
 
 .account-visibility.is-private {
-  color: #6b3a32;
-  border-color: rgba(107, 58, 50, 0.35);
-  background: rgba(242, 227, 221, 0.7);
+  color: #ff9f7a;
+  border-color: rgba(255, 159, 122, 0.4);
+  background: rgba(42, 24, 24, 0.75);
 }
 
 .legal-page {
@@ -1505,7 +1524,7 @@ a:hover {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
 }
 
 .account-project-main {
@@ -1531,7 +1550,7 @@ a:hover {
 
 .account-project-desc {
   font-size: 14px;
-  color: #433b35;
+  color: var(--ink-soft);
 }
 
 .account-project-link {
@@ -1548,7 +1567,7 @@ a:hover {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--panel-alt);
   display: grid;
   gap: 4px;
 }
@@ -1586,7 +1605,7 @@ a:hover {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
 }
 
 .account-limit-label {
@@ -1608,7 +1627,7 @@ a:hover {
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
 }
 
 .billing-value {
@@ -1629,7 +1648,7 @@ a:hover {
   padding: 12px;
   border-radius: 12px;
   border: 1px dashed var(--border);
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(9, 15, 25, 0.8);
 }
 
 .billing-plans {
@@ -1644,12 +1663,12 @@ a:hover {
   padding: 14px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel-alt);
 }
 
 .billing-plan.is-active {
-  border-color: rgba(30, 86, 118, 0.4);
-  box-shadow: 0 12px 24px rgba(30, 86, 118, 0.18);
+  border-color: rgba(74, 163, 255, 0.5);
+  box-shadow: 0 12px 24px rgba(10, 30, 54, 0.6);
 }
 
 .billing-plan-header {

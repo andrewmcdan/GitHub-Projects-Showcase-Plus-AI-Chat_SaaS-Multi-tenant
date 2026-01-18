@@ -27,7 +27,7 @@ Deliverables:
 ### M2: Public Experience + Discovery (3-4 weeks)
 Goals: improve browsing and Q&A clarity for public visitors.
 - Add category filter on public page.
-- Add "All public showcases" directory page.
+- Add "All public showcases" directory page. (done)
 - Add pinned projects and "Top repos" section.
 - Add per-repo quick prompts (architecture, tradeoffs, etc.).
 - Improve citation UX: collapsible sources + copy link.
