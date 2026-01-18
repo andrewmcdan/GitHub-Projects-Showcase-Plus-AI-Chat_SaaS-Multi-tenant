@@ -1436,7 +1436,12 @@ export default function Home() {
 
       <section className="main">
         <header className="hero">
-          <p className="eyebrow">GitHub Projects Showcase</p>
+          <div className="eyebrow-row">
+            <p className="eyebrow">GitHub Projects Showcase</p>
+            <Link className="eyebrow-link" href="/showcases">
+              Browse showcases
+            </Link>
+          </div>
           <div className="hero-title">
             <h1>Showcase + AI Chat</h1>
             <div className="hero-actions">

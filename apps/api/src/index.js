@@ -771,6 +771,51 @@ const buildOwnerPayload = (profile) => {
     };
 };
 
+const buildShowcaseDirectoryEntry = (row) => {
+    if (!row) {
+        return null;
+    }
+    const handle = row.handle || row.githubUsername || "";
+    if (!handle) {
+        return null;
+    }
+    const name =
+        row.userName || row.tenantName || row.githubUsername || handle || "";
+    return {
+        handle,
+        name,
+        bio: row.bio || "",
+        avatarUrl: row.avatarUrl || "",
+        projectCount: Number(row.projectCount) || 0,
+    };
+};
+
+const fetchPublicShowcases = async () => {
+    const result = await db.execute(sql`
+        select
+            t.handle as "handle",
+            t.name as "tenantName",
+            t.bio as "bio",
+            t.is_public as "isPublic",
+            min(u.name) as "userName",
+            min(u.github_username) as "githubUsername",
+            min(u.avatar_url) as "avatarUrl",
+            count(distinct p.id) as "projectCount"
+        from ${tenants} t
+        left join ${users} u on u.tenant_id = t.id
+        left join ${projects} p on p.tenant_id = t.id
+        where t.is_public = true
+          and t.handle is not null
+          and t.handle <> ''
+        group by t.handle, t.name, t.bio, t.is_public
+        order by lower(t.handle) asc
+    `);
+    const rows = extractRows(result);
+    return rows
+        .map((row) => buildShowcaseDirectoryEntry(row))
+        .filter(Boolean);
+};
+
 const fetchTenantProfile = async (tenantId) => {
     if (!tenantId) {
         return null;
@@ -4219,6 +4264,11 @@ app.get("/projects", async (request, reply) => {
         }
     }
     reply.send({ projects, owner });
+});
+
+app.get("/showcases", async (request, reply) => {
+    const showcases = await fetchPublicShowcases();
+    reply.send({ showcases });
 });
 
 app.post("/projects", async (request, reply) => {
